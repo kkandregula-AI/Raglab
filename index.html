@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0F1424">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>SMṚTI · Company Memory Engine — RAG & Fine-Tuning Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1424; --surface:#171C31; --surface2:#1E2440; --line:#2A3152;
+  --ink:#E9ECF8; --muted:#8B92AD;
+  --vec:#8FA7FF; --hit:#F0B23E; --ok:#4FD8A6; --bad:#F26D6D;
+  --r:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{overflow-x:hidden}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow-x:hidden;padding-bottom:env(safe-area-inset-bottom)}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.disp{font-family:"Sora",-apple-system,sans-serif}
+
+/* ---------- top bar ---------- */
+header{position:sticky;top:0;z-index:40;background:rgba(15,20,36,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+.bar{display:flex;align-items:center;gap:12px;padding:12px 16px;max-width:1200px;margin:0 auto}
+.logo{width:38px;height:38px;border-radius:10px;flex:0 0 auto}
+.title h1{font-size:17px;font-weight:800;letter-spacing:.04em}
+.title small{display:block;color:var(--muted);font-size:11.5px;letter-spacing:.02em}
+.bar .spacer{flex:1}
+.iconbtn{background:var(--surface2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer}
+.iconbtn:focus-visible{outline:2px solid var(--vec)}
+nav{display:flex;gap:6px;overflow-x:auto;padding:0 12px 10px;max-width:1200px;margin:0 auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:8px 15px;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{background:var(--vec);border-color:var(--vec);color:#0F1424}
+.tab:focus-visible{outline:2px solid var(--hit)}
+
+main{max-width:1200px;margin:0 auto;padding:18px 16px 60px}
+section[hidden]{display:none}
+.h2{font-size:22px;font-weight:800;margin:6px 0 4px;letter-spacing:.01em}
+.sub{color:var(--muted);font-size:14px;margin-bottom:16px;max-width:70ch}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
+.card h3{font-size:15.5px;font-weight:700;margin-bottom:8px}
+.card p{font-size:14px;color:var(--muted);margin-bottom:8px}
+.card p b, .card li b{color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:860px){.grid2,.grid3{grid-template-columns:1fr}}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:3px 10px;margin-bottom:8px}
+.pill.vec{background:rgba(143,167,255,.14);color:var(--vec)}
+.pill.hit{background:rgba(240,178,62,.14);color:var(--hit)}
+.pill.ok{background:rgba(79,216,166,.14);color:var(--ok)}
+.pill.bad{background:rgba(242,109,109,.14);color:var(--bad)}
+button.primary{background:var(--vec);color:#0F1424;border:0;border-radius:11px;padding:11px 18px;font-size:14.5px;font-weight:700;cursor:pointer}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:11px;padding:10px 16px;font-size:14px;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible{outline:2px solid var(--hit)}
+input[type=text],textarea,select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:11px 12px;font-size:16px}
+textarea{resize:vertical;min-height:90px}
+label{font-size:12.5px;color:var(--muted);font-weight:600;display:block;margin:10px 0 5px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tag{font-size:11.5px;border:1px solid var(--line);border-radius:8px;padding:2px 8px;color:var(--muted)}
+.hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+.divider{height:1px;background:var(--line);margin:14px 0}
+
+/* ---------- doc list & chunks ---------- */
+.doclist{display:flex;flex-direction:column;gap:10px}
+.doc{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface2)}
+.doc .row{justify-content:space-between}
+.doc h4{font-size:14px;font-weight:700}
+.doc .meta{font-size:12px;color:var(--muted)}
+.chunkwrap{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;padding-right:4px}
+.chunk{border:1px solid var(--line);border-left:4px solid var(--dc,#8FA7FF);border-radius:10px;padding:10px 12px;background:var(--bg);font-size:12.5px;color:var(--muted)}
+.chunk .cid{font-size:11px;color:var(--ink);font-weight:700;margin-bottom:4px}
+.chunk.hitc{border-color:var(--hit);box-shadow:0 0 0 1px rgba(240,178,62,.35)}
+.vecline{font-size:10.5px;color:var(--vec);word-break:break-all;margin-top:6px}
+
+/* ---------- embedding map ---------- */
+.mapwrap{position:relative;border:1px solid var(--line);border-radius:var(--r);background:radial-gradient(1200px 500px at 50% -10%,rgba(143,167,255,.08),transparent),var(--bg);overflow:hidden}
+#vmap{display:block;width:100%;height:440px;touch-action:none}
+.legend{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:5px;font-size:11.5px;background:rgba(15,20,36,.8);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.legend .li{display:flex;align-items:center;gap:7px;color:var(--muted)}
+.legend .swatch{width:9px;height:9px;border-radius:50%}
+
+/* ---------- pipeline ---------- */
+.pipe{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:6px 2px 14px}
+.stage{flex:0 0 auto;width:128px;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;opacity:.42;transition:opacity .3s}
+.stage .dot{width:46px;height:46px;border-radius:14px;background:var(--surface2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:8px;transition:all .3s}
+.stage .nm{font-size:12px;font-weight:700}
+.stage .ds{font-size:10.5px;color:var(--muted);margin-top:2px;padding:0 6px}
+.stage:not(:last-child)::after{content:"";position:absolute;top:23px;left:calc(50% + 26px);width:calc(100% - 52px);height:2px;background:var(--line)}
+.stage.on{opacity:1}
+.stage.on .dot{background:rgba(143,167,255,.16);border-color:var(--vec);box-shadow:0 0 18px rgba(143,167,255,.35)}
+.stage.done .dot{border-color:var(--ok)}
+.stage.done:not(:last-child)::after{background:var(--ok)}
+@media(prefers-reduced-motion:reduce){.stage{transition:none}.stage .dot{transition:none}}
+
+.answer{border:1px solid var(--line);border-radius:var(--r);background:var(--surface2);padding:16px;font-size:14.5px;line-height:1.65;white-space:pre-wrap}
+.srcchip{display:inline-block;background:rgba(240,178,62,.14);color:var(--hit);border-radius:7px;padding:1px 8px;font-size:11.5px;font-weight:700;margin:2px 3px 0 0}
+.modechip{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;border-radius:7px;padding:3px 9px}
+.modechip.sim{background:rgba(139,146,173,.18);color:var(--muted)}
+.modechip.real{background:rgba(79,216,166,.16);color:var(--ok)}
+
+/* ---------- prompt preview / code ---------- */
+pre.code{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:13px;font-size:12px;line-height:1.55;overflow:auto;color:#C6CCE8;white-space:pre-wrap;word-break:break-word}
+pre.code .k{color:var(--vec)} pre.code .s{color:var(--hit)} pre.code .c{color:var(--muted)}
+
+/* ---------- ft cards & table ---------- */
+details.ft{border:1px solid var(--line);border-radius:12px;background:var(--surface2);margin-bottom:10px;overflow:hidden}
+details.ft summary{cursor:pointer;padding:13px 15px;font-size:14.5px;font-weight:700;list-style:none;display:flex;align-items:center;gap:10px}
+details.ft summary::-webkit-details-marker{display:none}
+details.ft summary .n{width:26px;height:26px;border-radius:8px;background:rgba(143,167,255,.15);color:var(--vec);display:flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 auto}
+details.ft .body{padding:0 15px 14px;font-size:13.5px;color:var(--muted)}
+details.ft .body b{color:var(--ink)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+th{background:var(--surface2);font-size:12px;letter-spacing:.03em}
+td{color:var(--muted)} td b{color:var(--ink)}
+.tscroll{overflow-x:auto}
+.ok-t{color:var(--ok);font-weight:700}.bad-t{color:var(--bad);font-weight:700}
+
+/* ---------- validator ---------- */
+.vres{font-size:13px;border-radius:10px;padding:10px 12px;margin-top:10px}
+.vres.good{background:rgba(79,216,166,.1);color:var(--ok);border:1px solid rgba(79,216,166,.4)}
+.vres.bad{background:rgba(242,109,109,.1);color:var(--bad);border:1px solid rgba(242,109,109,.4)}
+
+/* ---------- modal ---------- */
+.modal{position:fixed;inset:0;background:rgba(8,11,22,.7);display:none;align-items:center;justify-content:center;z-index:60;padding:18px}
+.modal.open{display:flex}
+.mbox{background:var(--surface);border:1px solid var(--line);border-radius:16px;max-width:480px;width:100%;padding:20px;max-height:88vh;overflow:auto}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line);color:var(--ink);border-radius:12px;padding:10px 16px;font-size:13.5px;z-index:70;opacity:0;pointer-events:none;transition:opacity .25s}
+.toast.show{opacity:1}
+footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <canvas class="logo" id="logoCv" width="76" height="76" aria-hidden="true"></canvas>
+    <div class="title disp">
+      <h1>SMṚTI</h1>
+      <small>Company Memory Engine · RAG & Fine-Tuning Lab</small>
+    </div>
+    <div class="spacer"></div>
+    <span id="modeChip" class="modechip sim">Simulated</span>
+    <button class="iconbtn" id="settingsBtn" aria-label="Settings">⚙︎ Key</button>
+  </div>
+  <nav role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" aria-selected="true" data-t="build">1 · Build KB</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="store">2 · Vector Store</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="query">3 · Query (RAG)</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="tune">4 · Fine-Tuning</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="future">5 · Future</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="mcp">6 · MCP & Tools</button>
+  </nav>
+</header>
+
+<main>
+<!-- ================= BUILD ================= -->
+<section id="s-build" role="tabpanel">
+  <div class="pill vec">Step 1 · Ingest</div>
+  <h2 class="h2 disp">Build your company knowledge base</h2>
+  <p class="sub">Everything starts with your documents. SMṚTI ships with a small sample knowledge base for a fictional Indian EV company, <b>Aarambh Motors</b>. Add or edit documents, then watch them get <b>chunked</b> — split into small overlapping passages that become searchable memory.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Documents</h3>
+      <div class="doclist" id="docList"></div>
+      <div class="divider"></div>
+      <label for="ndTitle">New document title</label>
+      <input type="text" id="ndTitle" placeholder="e.g. Travel Reimbursement Policy">
+      <label for="ndText">Document text</label>
+      <textarea id="ndText" placeholder="Paste any company text here…"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="addDocBtn">Add document</button>
+        <button class="ghost" id="resetKbBtn">Reset sample KB</button>
+      </div>
+      <p class="hint">Documents live only in your browser (localStorage). Nothing is uploaded anywhere.</p>
+    </div>
+    <div class="card">
+      <h3>Chunking</h3>
+      <p>Chunks of <b><span id="csLabel">280</span> characters</b> with a small overlap so no sentence loses its neighbours.</p>
+      <label for="chunkSize">Chunk size</label>
+      <input type="range" id="chunkSize" min="140" max="600" step="20" value="280" style="width:100%">
+      <div class="divider"></div>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <span class="tag" id="chunkStats">0 chunks</span>
+        <span class="tag">TF-IDF embeddings · on-device</span>
+      </div>
+      <div class="chunkwrap" id="chunkList"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= STORE ================= -->
+<section id="s-store" role="tabpanel" hidden>
+  <div class="pill vec">Step 2 · Embed & Index</div>
+  <h2 class="h2 disp">The vector store, made visible</h2>
+  <p class="sub">Each chunk is converted into a vector — a list of numbers describing its meaning — and placed in an <b>embedding space</b>. Similar meaning → nearby points. This map is a live 2-D projection of your chunks. Run a query in Step 3 and the query star ★ will appear here, connected to its nearest chunks.</p>
+  <div class="mapwrap">
+    <canvas id="vmap" role="img" aria-label="2D map of document chunk embeddings"></canvas>
+    <div class="legend" id="mapLegend"></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>What a chunk looks like inside the store</h3>
+    <p>Real systems use dense embeddings (e.g. 1,024–3,072 dimensions from an embedding model) stored in a vector database — <b>Pinecone, Weaviate, Qdrant, Milvus, pgvector, Chroma</b>. SMṚTI computes honest on-device <b>TF-IDF</b> vectors so the demo works fully offline. Tap any chunk in Step 1 to inspect it; a truncated vector preview is shown below each retrieved chunk in Step 3.</p>
+    <pre class="code mono">{ <span class="k">"id"</span>: <span class="s">"leave-policy#3"</span>,
+  <span class="k">"text"</span>: <span class="s">"Employees accrue 1.5 days of earned leave per month…"</span>,
+  <span class="k">"embedding"</span>: [0.031, -0.114, 0.267, …],   <span class="c">// the "meaning" as numbers</span>
+  <span class="k">"metadata"</span>: { <span class="k">"doc"</span>: <span class="s">"HR Leave Policy"</span>, <span class="k">"version"</span>: <span class="s">"2026-07"</span> } }</pre>
+  </div>
+</section>
+
+<!-- ================= QUERY ================= -->
+<section id="s-query" role="tabpanel" hidden>
+  <div class="pill hit">Step 3 · Retrieve & Generate</div>
+  <h2 class="h2 disp">Ask your company memory</h2>
+  <p class="sub">This is the full RAG loop, animated end-to-end: your question is embedded, matched against the vector store, the best chunks are stitched into the prompt, and the model answers <b>grounded in your documents</b> — with sources.</p>
+
+  <div class="card">
+    <label for="qInput">Your question</label>
+    <input type="text" id="qInput" placeholder="e.g. How many earned leave days do I get per month?">
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="askBtn">Run RAG query</button>
+      <select id="topK" style="width:auto" aria-label="Top-K chunks">
+        <option value="2">Top-2 chunks</option>
+        <option value="3" selected>Top-3 chunks</option>
+        <option value="5">Top-5 chunks</option>
+      </select>
+      <span class="tag" id="ansMode">Answer: simulated (add API key for real Claude)</span>
+    </div>
+    <div class="row" style="margin-top:8px;gap:6px" id="qChips"></div>
+  </div>
+
+  <div class="pipe" id="pipe" aria-label="RAG pipeline stages"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Retrieved chunks <span class="tag" id="retStats"></span></h3>
+      <div class="chunkwrap" id="retList"><p class="hint">Run a query to see retrieval.</p></div>
+    </div>
+    <div class="card">
+      <h3>Augmented prompt → model</h3>
+      <pre class="code mono" id="promptPreview">The exact prompt sent to the LLM appears here after a query — your question + retrieved context + grounding instructions.</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3>Grounded answer</h3><span id="ansChip" class="modechip sim">Simulated</span>
+    </div>
+    <div class="answer" id="ansBox">Ask a question above. Try: “What is the warranty on the battery?” or “How do I apply for leave?”</div>
+    <div id="srcRow" style="margin-top:10px"></div>
+  </div>
+</section>
+
+<!-- ================= TUNE ================= -->
+<section id="s-tune" role="tabpanel" hidden>
+  <div class="pill ok">Track B · Fine-Tuning</div>
+  <h2 class="h2 disp">Fine-tuning: teaching the model itself</h2>
+  <p class="sub">RAG gives a model an <b>open book</b>. Fine-tuning changes the model's <b>handwriting</b> — its weights — so behaviour, tone, and domain fluency are baked in. In classical terms: RAG is <b>Smṛti</b> (recalled from an external store), fine-tuning is <b>Saṃskāra</b> (impressions carved into the model itself).</p>
+
+  <div class="card">
+    <h3>The types of fine-tuning</h3>
+    <div id="ftTypes"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Sample dataset — try the JSONL validator</h3>
+      <p>Fine-tuning data is usually <b>JSONL</b>: one training example per line, in chat <code class="mono">messages</code> format. Edit below and validate — the checks mirror what real pipelines enforce.</p>
+      <textarea id="jsonlBox" class="mono" style="min-height:220px;font-size:12px"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="valBtn">Validate dataset</button>
+        <button class="ghost" id="sampleBtn">Reload sample</button>
+      </div>
+      <div id="valOut"></div>
+    </div>
+    <div class="card">
+      <h3>Maintaining datasets so answers stay grounded</h3>
+      <p>A fine-tuned model is only as honest as its data. The discipline:</p>
+      <ul style="font-size:13.5px;color:var(--muted);padding-left:18px;display:flex;flex-direction:column;gap:7px">
+        <li><b>Version everything.</b> Treat datasets like code: <span class="mono">dataset-v2026.07</span>, changelogs, and a data card describing sources and licences.</li>
+        <li><b>Quality over quantity.</b> 500–5,000 excellent, human-reviewed examples usually beat 100k noisy ones for behaviour tuning.</li>
+        <li><b>Deduplicate & decontaminate.</b> Remove near-duplicates and make sure eval questions never leak into training data.</li>
+        <li><b>Teach refusal.</b> Include “I don't know / not in our records” examples so the model learns to say so instead of hallucinating.</li>
+        <li><b>Hold out an eval set.</b> Freeze 10–20% as test questions with gold answers; score every new model version against it before shipping.</li>
+        <li><b>Refresh on a cadence.</b> Policies change — schedule quarterly re-reviews; retire stale examples the way you retire stale docs in RAG.</li>
+        <li><b>Log real failures back in.</b> The best new training examples are yesterday's wrong answers, corrected by a human.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>RAG vs Fine-tuning — when to use which</h3>
+    <div class="tscroll"><table>
+      <tr><th>Question</th><th>Choose RAG</th><th>Choose Fine-tuning</th></tr>
+      <tr><td><b>Does the knowledge change often?</b></td><td class="ok-t">Yes — update the index, not the model</td><td class="bad-t">Retraining for every policy edit is costly</td></tr>
+      <tr><td><b>Do you need citations / audit trail?</b></td><td class="ok-t">Yes — chunks are traceable sources</td><td class="bad-t">Weights can't cite themselves</td></tr>
+      <tr><td><b>Is it about tone, format, style, workflow?</b></td><td class="bad-t">Prompting helps, but drifts</td><td class="ok-t">Yes — behaviour lives in weights</td></tr>
+      <tr><td><b>Domain jargon the base model garbles?</b></td><td>Partially</td><td class="ok-t">Domain-adaptive tuning shines</td></tr>
+      <tr><td><b>Latency / prompt-size budget tight?</b></td><td class="bad-t">Context adds tokens</td><td class="ok-t">Knowledge is “free” at inference</td></tr>
+      <tr><td><b>Small team, fast start?</b></td><td class="ok-t">A RAG MVP is a weekend project</td><td>Needs data pipeline + evals</td></tr>
+      <tr><td colspan="3"><b>Real answer for most companies: both.</b> Fine-tune (or just prompt-tune) the <i>behaviour</i>; RAG the <i>facts</i>. Grounded tone + grounded truth.</td></tr>
+    </table></div>
+  </div>
+</section>
+
+<!-- ================= FUTURE ================= -->
+<section id="s-future" role="tabpanel" hidden>
+  <div class="pill vec">Track C · What comes next</div>
+  <h2 class="h2 disp">Will RAG and fine-tuning be replaced?</h2>
+  <p class="sub">Neither disappears — they evolve. These are the successor patterns already arriving, roughly ordered from “here today” to “emerging”.</p>
+  <div id="futureCards" class="grid2"></div>
+</section>
+
+<!-- ================= MCP ================= -->
+<section id="s-mcp" role="tabpanel" hidden>
+  <div class="pill hit">Track D · Connect outward</div>
+  <h2 class="h2 disp">Wiring RAG into MCP & tools</h2>
+  <p class="sub">A vector store answers one question: “what do we know?” Real workflows need actions too. <b>MCP (Model Context Protocol)</b> is the open standard that lets any model talk to your company systems — including your RAG store — through one plug.</p>
+
+  <div class="card">
+    <h3>The agentic RAG loop</h3>
+    <pre class="code mono">User ──▶ Model (Claude / any MCP client)
+              │  decides which tool it needs
+              ├──▶ <span class="k">search_knowledge_base</span>(query)   <span class="c">← your vector store as an MCP server</span>
+              ├──▶ <span class="k">crm.lookup_customer</span>(id)        <span class="c">← Salesforce / Zoho MCP</span>
+              ├──▶ <span class="k">drive.fetch_doc</span>(path)           <span class="c">← Google Drive MCP</span>
+              └──▶ <span class="k">tickets.create</span>(payload)        <span class="c">← Jira / Linear MCP</span>
+              ▼
+        Grounded answer + completed action, with sources</pre>
+    <p>The shift: RAG stops being a fixed pipeline and becomes <b>one tool among many</b> that the model calls when it decides retrieval is needed — often multiple times, refining its query each round (agentic / self-RAG).</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Your vector store as an MCP server</h3>
+      <p>Expose retrieval as a tool. Any MCP-capable client (Claude apps, Claude Code, IDEs, your own PWA) can then use it:</p>
+      <pre class="code mono">{ <span class="k">"name"</span>: <span class="s">"search_knowledge_base"</span>,
+  <span class="k">"description"</span>: <span class="s">"Search Aarambh Motors' curated company docs. Returns top-k chunks with sources."</span>,
+  <span class="k">"input_schema"</span>: {
+    <span class="k">"type"</span>: <span class="s">"object"</span>,
+    <span class="k">"properties"</span>: {
+      <span class="k">"query"</span>: { <span class="k">"type"</span>: <span class="s">"string"</span> },
+      <span class="k">"top_k"</span>: { <span class="k">"type"</span>: <span class="s">"integer"</span>, <span class="k">"default"</span>: 3 } },
+    <span class="k">"required"</span>: [<span class="s">"query"</span>] } }</pre>
+      <p class="hint">Same schema works as a plain tool in the Anthropic Messages API (<span class="mono">tools:[…]</span>) or as an MCP server tool — MCP simply standardises discovery, auth, and transport.</p>
+    </div>
+    <div class="card">
+      <h3>Build order for a company</h3>
+      <ul style="font-size:13.5px;color:var(--muted);padding-left:18px;display:flex;flex-direction:column;gap:7px">
+        <li><b>1 · Pipeline RAG</b> — what SMṚTI demos: ingest → chunk → embed → retrieve → answer. Ship this first.</li>
+        <li><b>2 · Tool-calling RAG</b> — give the model a <span class="mono">search_knowledge_base</span> tool; it retrieves only when needed, and can re-query.</li>
+        <li><b>3 · MCP server</b> — wrap the same retrieval in an MCP server so every AI surface in the company (chat, IDE, agents) shares one governed memory.</li>
+        <li><b>4 · Actions</b> — add write-tools (create ticket, draft email, update CRM) behind human approval. Retrieval + action = a real digital colleague.</li>
+        <li><b>5 · Governance</b> — per-tool permissions, audit logs of every retrieval and action, and role-based filtering of which chunks each employee's assistant may see.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>SMṚTI · AI Education Series · Runs fully on-device; BYOK for live Claude answers.<br>Designed & Architected by Krishnamurthy Kandregula · Made by Claude</footer>
+
+<!-- settings modal -->
+<div class="modal" id="setModal" role="dialog" aria-modal="true" aria-label="Settings">
+  <div class="mbox">
+    <h3 class="disp" style="margin-bottom:6px">Live answers (BYOK)</h3>
+    <p style="font-size:13px;color:var(--muted)">Add your Anthropic API key to replace the simulated composer with real Claude answers, grounded in your retrieved chunks. The key is stored only in this browser's localStorage.</p>
+    <label for="apiKey">Anthropic API key</label>
+    <input type="text" id="apiKey" class="mono" placeholder="sk-ant-…" autocomplete="off">
+    <label for="modelSel">Model</label>
+    <select id="modelSel">
+      <option value="claude-sonnet-4-6">claude-sonnet-4-6 (recommended)</option>
+      <option value="claude-haiku-4-5">claude-haiku-4-5 (fast/cheap)</option>
+    </select>
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="saveKeyBtn">Save</button>
+      <button class="ghost" id="clearKeyBtn">Clear key</button>
+      <button class="ghost" id="closeSetBtn">Close</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ============ tiny utils ============ */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2400);};
+const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+/* ============ sample knowledge base ============ */
+const SAMPLE_DOCS=[
+ {id:"leave",title:"HR Leave Policy (v2026-07)",text:"Aarambh Motors employees accrue 1.5 days of earned leave per month, totalling 18 days per year. Earned leave can be carried forward up to a maximum of 30 days. Casual leave is 8 days per year and cannot be carried forward. Sick leave is 10 days per year and requires a medical certificate for absences longer than 2 consecutive days. To apply for leave, employees must raise a request in the Sampark HR portal at least 3 working days in advance, except for sick leave. Leave during the festival blackout weeks of Diwali production ramp requires plant-head approval. Unused earned leave beyond 30 days is encashed every April at basic salary rate."},
+ {id:"spec",title:"Product Spec — Aarambh S1 Scooter",text:"The Aarambh S1 is an electric scooter with a 3.2 kWh LFP battery pack delivering a certified IDC range of 142 km. Top speed is 90 km/h with a 6 kW peak motor. The S1 charges from 0 to 80 percent in 3.5 hours using the standard home charger, and in 55 minutes at an Aarambh FastGrid station. The scooter supports three ride modes: Eco, City, and Sprint. It includes a 7-inch touchscreen with turn-by-turn navigation, over-the-air software updates, and hill-hold assist. Boot space is 34 litres. The S1 is IP67 rated for water and dust resistance."},
+ {id:"warranty",title:"Warranty & Service FAQ",text:"The Aarambh S1 battery is covered by an 8-year or 80,000 km warranty, whichever comes first, guaranteeing at least 70 percent capacity retention. The motor and controller carry a 3-year unlimited km warranty. Regular service is recommended every 6 months or 5,000 km. Service can be booked through the Aarambh app; doorstep service is available in 46 cities. Consumables such as brake pads and tyres are not covered under warranty. Water damage is covered only if the vehicle was used within its IP67 rating conditions. Warranty is void if the battery pack is opened by unauthorised personnel."},
+ {id:"onboard",title:"New Engineer Onboarding Guide",text:"New engineers at Aarambh Motors complete a 2-week onboarding called Pravesh. Week 1 covers safety certification, the vehicle architecture bootcamp, and access setup for the Yantra design system and the firmware repository. Week 2 pairs each engineer with a mitra buddy for their first supervised task. All engineers must complete the high-voltage safety course before touching any battery hardware. Laptops are issued by IT within 2 days of joining; access requests go through the Sampark portal. The onboarding checklist must be signed off by the reporting manager by day 14."}
+];
+
+/* ============ state ============ */
+let docs=LS.get("smriti.docs",null)||SAMPLE_DOCS.map(d=>({...d}));
+let chunkSize=LS.get("smriti.chunkSize",280);
+let chunks=[],vocab=null,idf=null,proj=null,lastQuery=null;
+const DOC_COLORS=["#8FA7FF","#F0B23E","#4FD8A6","#F26D6D","#C79BFF","#5FD0E8","#F2A0C8"];
+
+/* ============ chunking ============ */
+function chunkDocs(){
+  chunks=[];
+  docs.forEach((d,di)=>{
+    const sents=d.text.match(/[^.!?]+[.!?]+/g)||[d.text];
+    let buf="",idx=0,prevTail="";
+    const flush=()=>{if(buf.trim()){chunks.push({id:d.id+"#"+idx,doc:d.title,di,text:(prevTail?prevTail+" ":"")+buf.trim()});prevTail=buf.trim().split(" ").slice(-8).join(" ");idx++;buf="";}};
+    for(const s of sents){ if((buf+s).length>chunkSize) flush(); buf+=s; }
+    flush();
+  });
+}
+
+/* ============ TF-IDF embeddings ============ */
+const STOP=new Set("a an the is are was were be been to of in on at for with and or as by from this that these those it its can will must may not no per each any all only if than then when what how do does".split(" "));
+const tok=t=>t.toLowerCase().replace(/[^a-z0-9\s%.-]/g," ").split(/\s+/).filter(w=>w.length>1&&!STOP.has(w));
+function buildIndex(){
+  vocab=new Map();const dfs=new Map();
+  chunks.forEach(c=>{c.toks=tok(c.text);const seen=new Set();
+    c.tf=new Map();c.toks.forEach(w=>{c.tf.set(w,(c.tf.get(w)||0)+1);if(!seen.has(w)){dfs.set(w,(dfs.get(w)||0)+1);seen.add(w);}});});
+  idf=new Map();const N=chunks.length||1;
+  dfs.forEach((df,w)=>idf.set(w,Math.log((N+1)/(df+.5))));
+  chunks.forEach(c=>{c.vec=new Map();let n=0;
+    c.tf.forEach((f,w)=>{const v=(1+Math.log(f))*(idf.get(w)||0);c.vec.set(w,v);n+=v*v;});
+    c.norm=Math.sqrt(n)||1;});
+  buildProjection();
+}
+function embedQuery(q){
+  const tf=new Map();tok(q).forEach(w=>tf.set(w,(tf.get(w)||0)+1));
+  const vec=new Map();let n=0;
+  tf.forEach((f,w)=>{const v=(1+Math.log(f))*(idf.get(w)||Math.log((chunks.length+1)/.5)*.3);vec.set(w,v);n+=v*v;});
+  return {vec,norm:Math.sqrt(n)||1};
+}
+const cosine=(a,b)=>{let s=0;const [small,big]=a.vec.size<b.vec.size?[a,b]:[b,a];
+  small.vec.forEach((v,w)=>{const u=big.vec.get(w);if(u)s+=v*u;});return s/(a.norm*b.norm);};
+function retrieve(q,k){const qe=embedQuery(q);
+  return {qe,hits:chunks.map(c=>({c,score:cosine(qe,c)})).sort((x,y)=>y.score-x.score).slice(0,k)};}
+
+/* ============ 2-D projection (seeded random hyperplanes) ============ */
+function h32(str,seed){let h=seed>>>0;for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),2654435761);h=(h<<13)|(h>>>19);}return((h>>>0)/4294967295)*2-1;}
+function projectVec(v){let x=0,y=0;v.vec.forEach((val,w)=>{x+=val*h32(w,7);y+=val*h32(w,131);});return [x/v.norm,y/v.norm];}
+function buildProjection(){proj=chunks.map(c=>projectVec(c));}
+
+/* ============ vector map canvas ============ */
+const vmap=$("#vmap");let mapDirty=true;
+function drawMap(qpt,hitIdx){
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const w=vmap.clientWidth,h=vmap.clientHeight;
+  vmap.width=w*dpr;vmap.height=h*dpr;
+  const g=vmap.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
+  if(!proj||!proj.length)return;
+  let pts=proj.slice();if(qpt)pts=pts.concat([qpt]);
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  pts.forEach(([x,y])=>{minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);});
+  const pad=42,sx=x=>pad+(x-minX)/((maxX-minX)||1)*(w-2*pad),sy=y=>pad+(y-minY)/((maxY-minY)||1)*(h-2*pad);
+  g.strokeStyle="rgba(143,167,255,.06)";g.lineWidth=1;
+  for(let i=1;i<6;i++){g.beginPath();g.moveTo(0,h*i/6);g.lineTo(w,h*i/6);g.stroke();g.beginPath();g.moveTo(w*i/6,0);g.lineTo(w*i/6,h);g.stroke();}
+  if(qpt&&hitIdx){const qx=sx(qpt[0]),qy=sy(qpt[1]);
+    g.strokeStyle="rgba(240,178,62,.75)";g.lineWidth=1.6;
+    hitIdx.forEach(i=>{const[x,y]=proj[i];g.beginPath();g.moveTo(qx,qy);g.lineTo(sx(x),sy(y));g.stroke();});}
+  proj.forEach(([x,y],i)=>{const c=chunks[i];const hit=hitIdx&&hitIdx.includes(i);
+    g.beginPath();g.arc(sx(x),sy(y),hit?7:4.5,0,7);
+    g.fillStyle=hit?"#F0B23E":DOC_COLORS[c.di%DOC_COLORS.length];
+    g.globalAlpha=hit?1:.8;g.fill();g.globalAlpha=1;
+    if(hit){g.strokeStyle="rgba(240,178,62,.5)";g.lineWidth=5;g.globalAlpha=.35;g.stroke();g.globalAlpha=1;}});
+  if(qpt){const qx=sx(qpt[0]),qy=sy(qpt[1]);
+    g.fillStyle="#E9ECF8";g.font="700 15px Sora,sans-serif";
+    star(g,qx,qy,10,"#F0B23E");g.fillText("query",qx+13,qy+4);}
+}
+function star(g,x,y,r,col){g.save();g.translate(x,y);g.fillStyle=col;g.beginPath();
+ for(let i=0;i<10;i++){const a=Math.PI/5*i-Math.PI/2,rr=i%2?r*.45:r;g.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}g.closePath();g.fill();g.restore();}
+function drawLegend(){const L=$("#mapLegend");
+  L.innerHTML=docs.map((d,i)=>`<div class="li"><span class="swatch" style="background:${DOC_COLORS[i%DOC_COLORS.length]}"></span>${esc(d.title.split("—")[0].split("(")[0].trim())}</div>`).join("")
+   +`<div class="li"><span class="swatch" style="background:#F0B23E"></span>Retrieved (top-K)</div>`;}
+
+/* ============ render build tab ============ */
+function renderDocs(){
+  $("#docList").innerHTML=docs.map((d,i)=>`<div class="doc">
+    <div class="row"><h4>${esc(d.title)}</h4><button class="ghost" style="padding:5px 10px;font-size:12px" data-del="${i}">Remove</button></div>
+    <div class="meta">${d.text.length.toLocaleString()} chars · colour <span style="color:${DOC_COLORS[i%DOC_COLORS.length]}">●</span></div></div>`).join("");
+  $$("#docList [data-del]").forEach(b=>b.onclick=()=>{docs.splice(+b.dataset.del,1);persistAndRebuild();});
+}
+function renderChunks(){
+  $("#chunkStats").textContent=chunks.length+" chunks · "+docs.length+" docs";
+  $("#chunkList").innerHTML=chunks.map(c=>`<div class="chunk" style="--dc:${DOC_COLORS[c.di%DOC_COLORS.length]}">
+    <div class="cid">${esc(c.id)} · ${esc(c.doc)}</div>${esc(c.text)}</div>`).join("");
+}
+function persistAndRebuild(){LS.set("smriti.docs",docs);rebuild();}
+function rebuild(){chunkDocs();buildIndex();renderDocs();renderChunks();drawLegend();drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);}
+
+/* ============ pipeline ============ */
+const STAGES=[
+ ["💬","User query","Natural-language question"],
+ ["🔢","Embed","Query → vector"],
+ ["🗄️","Vector search","Cosine similarity vs store"],
+ ["📑","Top-K chunks","Best-matching passages"],
+ ["🧩","Augment","Chunks + question → prompt"],
+ ["🧠","LLM","Claude / any model"],
+ ["✅","Grounded answer","With cited sources"]];
+function renderPipe(){$("#pipe").innerHTML=STAGES.map((s,i)=>`<div class="stage" data-i="${i}">
+  <div class="dot">${s[0]}</div><div class="nm">${s[1]}</div><div class="ds">${s[2]}</div></div>`).join("");}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function animatePipe(upto){
+  const els=$$(".stage");const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  for(let i=0;i<els.length;i++){els[i].classList.remove("on","done");}
+  for(let i=0;i<=upto;i++){els[i].classList.add("on");if(i>0)els[i-1].classList.add("done");
+    els[i].scrollIntoView({behavior:reduce?"auto":"smooth",inline:"center",block:"nearest"});
+    if(!reduce)await sleep(340);}
+}
+
+/* ============ RAG query ============ */
+const SUGGESTIONS=["How many earned leave days per month?","What is the battery warranty?","How fast does the S1 charge?","What happens in onboarding week 2?","Can I carry forward casual leave?"];
+function renderChips(){$("#qChips").innerHTML=SUGGESTIONS.map(s=>`<button class="tag" style="cursor:pointer;background:var(--surface2)" data-q="${esc(s)}">${esc(s)}</button>`).join("");
+  $$("#qChips [data-q]").forEach(b=>b.onclick=()=>{$("#qInput").value=b.dataset.q;runQuery();});}
+
+function buildPrompt(q,hits){
+  const ctx=hits.map((h,i)=>`[Source ${i+1}: ${h.c.doc} · ${h.c.id}]\n${h.c.text}`).join("\n\n");
+  return `You are Aarambh Motors' internal assistant. Answer ONLY from the context below. If the answer is not in the context, say "I don't have that in our records." Cite sources as [Source N].\n\n=== CONTEXT ===\n${ctx}\n\n=== QUESTION ===\n${q}`;
+}
+function simulatedAnswer(q,hits){
+  const qt=new Set(tok(q));
+  const best=[];
+  hits.forEach((h,i)=>{(h.c.text.match(/[^.!?]+[.!?]+/g)||[h.c.text]).forEach(s=>{
+    const st=tok(s);const ov=st.filter(w=>qt.has(w)).length;
+    if(ov>0)best.push({s:s.trim(),ov,i});});});
+  best.sort((a,b)=>b.ov-a.ov);
+  if(!best.length)return "I don't have that in our records. (No retrieved sentence overlapped your question — try rephrasing, or add a document that covers it.)";
+  const top=best.slice(0,2);
+  return top.map(b=>b.s+" [Source "+(b.i+1)+"]").join(" ")+"\n\n— Simulated composer: stitched from the highest-overlap sentences in your retrieved chunks. Add an API key (⚙︎) for a real Claude answer over the same context.";
+}
+async function realAnswer(prompt){
+  const key=LS.get("smriti.key",""),model=LS.get("smriti.model","claude-sonnet-4-6");
+  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
+    "Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01",
+    "anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model,max_tokens:600,messages:[{role:"user",content:prompt}]})});
+  if(!res.ok){const e=await res.text();throw new Error("API "+res.status+": "+e.slice(0,140));}
+  const data=await res.json();
+  return (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+}
+
+let busy=false;
+async function runQuery(){
+  if(busy)return;const q=$("#qInput").value.trim();
+  if(!q){toast("Type a question first");return;}
+  busy=true;$("#askBtn").disabled=true;
+  const k=+$("#topK").value;
+  await animatePipe(2);
+  const r=retrieve(q,k);lastQuery=r;
+  $("#retStats").textContent="top-"+k+" of "+chunks.length;
+  $("#retList").innerHTML=r.hits.map((h,i)=>{
+    const vprev=[...h.c.vec.entries()].sort((a,b)=>b[1]-a[1]).slice(0,4).map(([w,v])=>w+":"+v.toFixed(2)).join("  ");
+    return `<div class="chunk hitc"><div class="cid">Source ${i+1} · ${esc(h.c.id)} · similarity ${(h.score*100).toFixed(1)}%</div>${esc(h.c.text)}<div class="vecline mono">embedding preview → [ ${esc(vprev)} … ]</div></div>`;}).join("");
+  const hi=r.hits.map(h=>chunks.indexOf(h.c));
+  drawMap(projectVec(r.qe),hi);
+  await animatePipe(4);
+  const prompt=buildPrompt(q,r.hits);
+  $("#promptPreview").textContent=prompt;
+  await animatePipe(5);
+  const key=LS.get("smriti.key","");
+  let ans,real=false;
+  if(key){try{ans=await realAnswer(prompt);real=true;}catch(e){ans="Live call failed ("+e.message+").\n\nFalling back to simulation:\n\n"+simulatedAnswer(q,r.hits);}}
+  else ans=simulatedAnswer(q,r.hits);
+  $("#ansBox").textContent=ans;
+  $("#ansChip").className="modechip "+(real?"real":"sim");
+  $("#ansChip").textContent=real?"Real · "+LS.get("smriti.model","claude-sonnet-4-6"):"Simulated";
+  $("#srcRow").innerHTML=r.hits.map((h,i)=>`<span class="srcchip">Source ${i+1} · ${esc(h.c.doc)}</span>`).join("");
+  await animatePipe(6);
+  busy=false;$("#askBtn").disabled=false;
+}
+
+/* ============ fine-tuning content ============ */
+const FT_TYPES=[
+ ["Full fine-tuning","Every weight in the model is updated on your data. Maximum control, maximum cost — needs serious GPUs, large datasets, and careful eval to avoid <b>catastrophic forgetting</b> (the model losing general skills). Rarely the right first choice for a company."],
+ ["PEFT — LoRA / QLoRA / adapters","<b>Parameter-Efficient Fine-Tuning</b> freezes the base model and trains tiny add-on matrices (often &lt;1% of weights). LoRA is the workhorse; QLoRA does it on a quantised model so a single GPU is enough. Cheap, fast, swappable — you can keep one adapter per department. This is what most 'fine-tuning' means in practice today."],
+ ["Supervised fine-tuning (SFT / instruction tuning)","Train on <b>input → ideal output</b> pairs (the JSONL format on the left). Teaches format, tone, workflow, and 'how we answer here'. The foundation layer of almost every tuning project."],
+ ["Preference tuning — RLHF / DPO / KTO","Instead of one gold answer, the model learns from <b>comparisons</b>: answer A preferred over answer B. RLHF uses a reward model + reinforcement learning; <b>DPO</b> gets similar results with a much simpler direct loss, so it has largely become the default. Used to tune helpfulness, safety, and refusal behaviour."],
+ ["Domain-adaptive continued pretraining","Before any instruction data, keep pretraining the base model on raw domain text (legal corpora, medical notes, your product manuals) so it natively speaks the vocabulary. Heavy, but powerful for deep domains — think FinBERT-style specialisation, at LLM scale."],
+ ["Distillation","A large 'teacher' model generates high-quality answers; a small 'student' model is fine-tuned to imitate them. How companies get near-frontier behaviour into small, cheap, on-prem models. Increasingly the endgame of a tuning pipeline."]];
+function renderFT(){$("#ftTypes").innerHTML=FT_TYPES.map((t,i)=>`<details class="ft"${i===0?" open":""}>
+  <summary><span class="n">${i+1}</span>${t[0]}</summary><div class="body"><p>${t[1]}</p></div></details>`).join("");}
+
+const SAMPLE_JSONL=[
+ {messages:[{role:"system",content:"You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records."},{role:"user",content:"What's the battery warranty on the S1?"},{role:"assistant",content:"The S1 battery is covered for 8 years or 80,000 km (whichever comes first), with at least 70% capacity retention guaranteed."}]},
+ {messages:[{role:"system",content:"You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records."},{role:"user",content:"Can I open the battery pack to check a loose wire?"},{role:"assistant",content:"No — opening the battery pack yourself voids the warranty. Please book a doorstep service in the Aarambh app; a certified technician will inspect it."}]},
+ {messages:[{role:"system",content:"You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records."},{role:"user",content:"Does the S1 support wireless CarPlay?"},{role:"assistant",content:"I don't have that in our records. The spec sheet lists a 7-inch touchscreen with navigation and OTA updates, but no CarPlay support is documented."}]}
+].map(o=>JSON.stringify(o)).join("\n");
+function loadSample(){$("#jsonlBox").value=SAMPLE_JSONL;}
+function validateJSONL(){
+  const lines=$("#jsonlBox").value.split("\n").filter(l=>l.trim());
+  const errs=[];let sys=0,refusal=0;const seen=new Set();
+  lines.forEach((l,i)=>{
+    let o;try{o=JSON.parse(l);}catch(e){errs.push("Line "+(i+1)+": not valid JSON");return;}
+    if(!Array.isArray(o.messages)){errs.push("Line "+(i+1)+": missing messages[]");return;}
+    const roles=o.messages.map(m=>m.role);
+    if(!roles.includes("user")||!roles.includes("assistant"))errs.push("Line "+(i+1)+": needs user + assistant turns");
+    if(roles[0]==="system")sys++;
+    const u=(o.messages.find(m=>m.role==="user")||{}).content||"";
+    if(seen.has(u))errs.push("Line "+(i+1)+": duplicate user prompt (dedupe!)");seen.add(u);
+    const a=(o.messages.find(m=>m.role==="assistant")||{}).content||"";
+    if(/don't have|not documented|no record/i.test(a))refusal++;
+    if(a.length<20)errs.push("Line "+(i+1)+": assistant answer suspiciously short");
+  });
+  const out=$("#valOut");
+  if(!lines.length){out.innerHTML='<div class="vres bad">Dataset is empty.</div>';return;}
+  let html="";
+  if(errs.length)html+='<div class="vres bad">✗ '+errs.length+' issue(s):<br>'+errs.map(esc).join("<br>")+'</div>';
+  else html+='<div class="vres good">✓ '+lines.length+' examples parsed cleanly — every line has valid JSON, user + assistant turns, and no duplicate prompts.</div>';
+  html+='<div class="vres '+(refusal>0?"good":"bad")+'">'+(refusal>0?'✓ Contains '+refusal+' grounded-refusal example(s) — teaches the model to say "not in our records" instead of hallucinating.':'✗ No refusal examples found. Add a few "I don\'t have that in our records" answers to keep the tuned model honest.')+'</div>';
+  html+='<div class="vres '+(sys===lines.length?"good":"bad")+'">'+(sys===lines.length?'✓ Consistent system prompt across all examples.':'✗ '+(lines.length-sys)+' example(s) missing the system message — inconsistent framing weakens tuning.')+'</div>';
+  out.innerHTML=html;
+}
+
+/* ============ future cards ============ */
+const FUTURE=[
+ ["Here today","Hybrid retrieval + rerankers","Dense vectors alone miss exact terms ('IP67', invoice numbers). Production RAG now runs <b>BM25 keyword + vector search together</b>, then a cross-encoder reranker re-orders candidates. Biggest cheap quality win available right now."],
+ ["Here today","Long-context + context caching (CAG)","Models with 200K–1M token windows let small knowledge bases skip the vector store entirely: cache the whole handbook in the prompt (<b>cache-augmented generation</b>) and pay the ingestion cost once. RAG survives for large, changing corpora; CAG eats the small-KB use case."],
+ ["Arriving","Agentic / self-RAG","Retrieval stops being a fixed pipeline. The model <b>decides</b> when to search, critiques its own retrieved chunks, rewrites the query, and loops until confident — retrieval as a tool call, not a stage. This is the pattern the MCP tab wires up."],
+ ["Arriving","GraphRAG & structured memory","Chunks become a <b>knowledge graph</b> of entities and relationships, so 'multi-hop' questions (Which suppliers affect the S1 battery warranty?) traverse links instead of hoping one chunk contains everything."],
+ ["Arriving","Continual / online learning","Instead of big-bang retrains, models absorb small weekly adapter updates from fresh corrected data — fine-tuning becomes a <b>drip feed</b>, closing the gap between 'update the index' and 'update the weights'."],
+ ["Emerging","Dedicated memory layers","Architectures with explicit read/write memory (and product features like persistent assistant memory) blur RAG into the model itself: the store becomes a first-class organ, not an external bolt-on. Retrieval and weights converge."]];
+function renderFuture(){$("#futureCards").innerHTML=FUTURE.map(f=>`<div class="card">
+  <div class="pill ${f[0]==="Here today"?"ok":f[0]==="Arriving"?"hit":"vec"}">${f[0]}</div>
+  <h3>${f[1]}</h3><p>${f[2]}</p></div>`).join("");}
+
+/* ============ tabs ============ */
+function switchTab(t){$$(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.t===t));
+  ["build","store","query","tune","future","mcp"].forEach(x=>$("#s-"+x).hidden=x!==t);
+  if(t==="store")requestAnimationFrame(()=>drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null));
+  window.scrollTo({top:0});}
+$$(".tab").forEach(b=>b.onclick=()=>switchTab(b.dataset.t));
+
+/* ============ settings ============ */
+const setModal=$("#setModal");
+function refreshMode(){const k=LS.get("smriti.key","");
+  $("#modeChip").className="modechip "+(k?"real":"sim");
+  $("#modeChip").textContent=k?"Live: Claude":"Simulated";
+  $("#ansMode").textContent=k?"Answer: real Claude ("+LS.get("smriti.model","claude-sonnet-4-6")+")":"Answer: simulated (add API key for real Claude)";}
+$("#settingsBtn").onclick=()=>{$("#apiKey").value=LS.get("smriti.key","");$("#modelSel").value=LS.get("smriti.model","claude-sonnet-4-6");setModal.classList.add("open");};
+$("#closeSetBtn").onclick=()=>setModal.classList.remove("open");
+setModal.onclick=e=>{if(e.target===setModal)setModal.classList.remove("open");};
+$("#saveKeyBtn").onclick=()=>{LS.set("smriti.key",$("#apiKey").value.trim());LS.set("smriti.model",$("#modelSel").value);refreshMode();setModal.classList.remove("open");toast("Saved — answers now use live Claude");};
+$("#clearKeyBtn").onclick=()=>{LS.set("smriti.key","");refreshMode();toast("Key cleared — back to simulated mode");};
+
+/* ============ build tab events ============ */
+$("#addDocBtn").onclick=()=>{const t=$("#ndTitle").value.trim(),x=$("#ndText").value.trim();
+  if(!t||!x){toast("Add a title and some text");return;}
+  docs.push({id:"u"+Date.now().toString(36),title:t,text:x});
+  $("#ndTitle").value="";$("#ndText").value="";persistAndRebuild();toast("Document added & indexed");};
+$("#resetKbBtn").onclick=()=>{docs=SAMPLE_DOCS.map(d=>({...d}));persistAndRebuild();toast("Sample knowledge base restored");};
+$("#chunkSize").oninput=e=>{chunkSize=+e.target.value;$("#csLabel").textContent=chunkSize;};
+$("#chunkSize").onchange=()=>{LS.set("smriti.chunkSize",chunkSize);rebuild();toast("Re-chunked & re-indexed");};
+$("#askBtn").onclick=runQuery;
+$("#qInput").addEventListener("keydown",e=>{if(e.key==="Enter")runQuery();});
+$("#valBtn").onclick=validateJSONL;
+$("#sampleBtn").onclick=()=>{loadSample();$("#valOut").innerHTML="";};
+window.addEventListener("resize",()=>{if(!$("#s-store").hidden)drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);});
+
+/* ============ logo + PWA ============ */
+function drawLogo(){const c=$("#logoCv"),g=c.getContext("2d");
+  const grd=g.createLinearGradient(0,0,76,76);grd.addColorStop(0,"#8FA7FF");grd.addColorStop(1,"#F0B23E");
+  g.fillStyle="#171C31";g.beginPath();
+  if(g.roundRect)g.roundRect(0,0,76,76,18);else g.rect(0,0,76,76);g.fill();
+  g.strokeStyle=grd;g.lineWidth=3;
+  const pts=[[20,50],[36,26],[52,44],[60,30]];
+  g.beginPath();pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.stroke();
+  pts.forEach(([x,y],i)=>{g.beginPath();g.arc(x,y,i===1?6:4.5,0,7);g.fillStyle=i===1?"#F0B23E":"#8FA7FF";g.fill();});}
+function iconDataURL(size){const c=document.createElement("canvas");c.width=c.height=size;const g=c.getContext("2d");
+  const grd=g.createLinearGradient(0,0,size,size);grd.addColorStop(0,"#8FA7FF");grd.addColorStop(1,"#F0B23E");
+  g.fillStyle="#0F1424";g.fillRect(0,0,size,size);
+  const u=size/76;g.strokeStyle=grd;g.lineWidth=4*u;
+  const pts=[[20,50],[36,26],[52,44],[60,30]].map(([x,y])=>[x*u,y*u]);
+  g.beginPath();pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.stroke();
+  pts.forEach(([x,y],i)=>{g.beginPath();g.arc(x,y,(i===1?7:5)*u,0,7);g.fillStyle=i===1?"#F0B23E":"#8FA7FF";g.fill();});
+  return c.toDataURL("image/png");}
+function setupPWA(){
+  try{
+    const manifest={name:"SMṚTI — RAG & Fine-Tuning Lab",short_name:"SMṚTI",display:"standalone",
+      start_url:location.href,background_color:"#0F1424",theme_color:"#0F1424",
+      icons:[{src:iconDataURL(192),sizes:"192x192",type:"image/png"},{src:iconDataURL(512),sizes:"512x512",type:"image/png"}]};
+    const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
+    const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
+    if("serviceWorker" in navigator){
+      const sw=`const C="smriti-v1";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const swb=new Blob([sw],{type:"text/javascript"});
+      navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
+    }
+  }catch(e){}
+}
+
+/* ============ init ============ */
+drawLogo();renderPipe();renderChips();renderFT();loadSample();renderFuture();refreshMode();
+$("#chunkSize").value=chunkSize;$("#csLabel").textContent=chunkSize;
+rebuild();setupPWA();
+</script>
+</body>
+</html>
