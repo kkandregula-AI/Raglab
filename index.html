@@ -340,7 +340,7 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
     </div>
     <p class="hint" id="tuneHouseHint"></p>
     <p style="font-size:13px">Everything on this page works on the active house: ★ its dataset (draft it from its documents below), its behaviour prompt, its few-shot preview, and its downloads. The same house you built in RAG is the domain you fine-tune here.</p>
-    <button class="ghost" id="goBuildBtn">＋ Create or manage houses → Build tab</button>
+    <div class="row" id="tuneAction"></div>
   </div>
 
   <div class="card">
@@ -1121,7 +1121,23 @@ function renderHouses(){
   $("#resetKbBtn").textContent=house.id==="sample"?"Reset sample KB":"Clear all documents";
   const ds=(house.jsonl||"").split("\n").filter(l=>l.trim()).length;
   $("#houseHint").textContent="Active: "+house.name+" · "+docs.length+" doc(s) · "+ds+" dataset example(s). Everything in a house stays in this browser; Export to back it up or move devices.";
-  if($("#tuneHouseHint"))$("#tuneHouseHint").textContent=docs.length+" doc(s) indexed · "+ds+" dataset example(s) · behaviour prompt "+((house.sys||"").trim()?"set":"not set yet")+(house.id==="sample"?" · (the demo house — create your own to fine-tune your domain)":"");
+  if($("#tuneHouseHint"))$("#tuneHouseHint").textContent=docs.length+" doc(s) indexed · "+ds+" dataset example(s) · behaviour prompt "+((house.sys||"").trim()?"set":"not set yet");
+  const ta=$("#tuneAction");
+  if(ta){
+    let html="";
+    if(house.id==="sample")html='<button class="ghost" data-ta="build">＋ This is the demo house — create your own → Build tab</button>';
+    else if(!docs.length)html='<button class="ghost" data-ta="build">This house has no documents yet — add some → Build tab</button>';
+    else if(ds===0)html='<button class="primary" data-ta="draft">✍️ Next step: draft this house\'s dataset from its '+docs.length+' document(s)</button>';
+    else if(!(house.sys||"").trim())html='<button class="ghost" data-ta="sys">Next step: set the behaviour prompt for the few-shot preview ↓</button>';
+    ta.innerHTML=html;
+    const b=ta.querySelector("[data-ta]");
+    if(b)b.onclick=()=>{
+      const a=b.dataset.ta;
+      if(a==="build")switchTab("build");
+      else if(a==="draft"){$("#dsSel").value="mine";loadSample();$("#jsonlBox").scrollIntoView({behavior:"smooth",block:"center"});toast("Use ✍️ Auto-draft or ✨ AI draft below the dataset selector");}
+      else if(a==="sys"){$("#sysBox").scrollIntoView({behavior:"smooth",block:"center"});$("#sysBox").focus();}
+    };
+  }
   $("#sysBox").value=house.sys||"";
 }
 function switchHouse(id){
@@ -1142,7 +1158,6 @@ function switchHouse(id){
 }
 $("#houseSel").onchange=e=>switchHouse(e.target.value);
 if($("#houseSel2"))$("#houseSel2").onchange=e=>switchHouse(e.target.value);
-if($("#goBuildBtn"))$("#goBuildBtn").onclick=()=>switchTab("build");
 $("#houseNew").onclick=()=>{
   const n=$("#houseName").value.trim();
   if(!n){toast("Give your house a name first");return;}
@@ -1452,7 +1467,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v20";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v21";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
