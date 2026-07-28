@@ -351,7 +351,7 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
   <div class="grid2">
     <div class="card">
       <h3>Sample fine-tuning datasets — pick, edit, validate, download</h3>
-      <p>Five ready-made sample datasets in real formats — including a <b>golden eval set</b> you can actually run against the live RAG. Load one, edit it, validate, then <b>download the .jsonl</b> as a template for your own data.</p>
+      <p>Five ready-made sample datasets in real formats — including a <b>golden eval set</b> you can run against the live RAG, or <b>build from ★ your own reviewed dataset</b>. Load one, edit it, validate, then <b>download the .jsonl</b> as a template for your own data.</p>
       <label for="dsSel">Dataset</label>
       <select id="dsSel">
         <option value="sft" selected>1 · SFT — Support Assistant (chat messages)</option>
@@ -363,6 +363,7 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
       </select>
       <div class="row" id="goldenTools" style="margin-top:8px;display:none">
         <button class="ghost" id="runEvalBtn">▶ Run eval against active house's RAG</button>
+        <button class="ghost" id="promoteBtn">↑ Build golden set from ★ my dataset</button>
         <span class="tag">Frozen questions + gold answers = your regression test</span>
       </div>
       <div class="row" id="mineTools" style="margin-top:8px;display:none">
@@ -979,14 +980,16 @@ function loadSample(){
   $("#mineTools").style.display=v==="mine"?"flex":"none";
   $("#goldenTools").style.display=v==="golden"?"flex":"none";
   if(v==="mine"){$("#jsonlBox").value=house.jsonl||"";}
+  else if(v==="golden"){$("#jsonlBox").value=(house.golden&&house.golden.trim())?house.golden:DATASETS.golden.lines.map(o=>JSON.stringify(o)).join("\n");}
   else{$("#jsonlBox").value=DATASETS[v].lines.map(o=>JSON.stringify(o)).join("\n");}
   $("#valOut").innerHTML="";
 }
 let jsonlSaveT=null;
 function maybeSaveMine(){
-  if($("#dsSel").value!=="mine")return;
+  const v=$("#dsSel").value;
+  if(v!=="mine"&&v!=="golden")return;
   clearTimeout(jsonlSaveT);
-  jsonlSaveT=setTimeout(()=>{house.jsonl=$("#jsonlBox").value;saveHouses();},400);
+  jsonlSaveT=setTimeout(()=>{if(v==="mine")house.jsonl=$("#jsonlBox").value;else house.golden=$("#jsonlBox").value;saveHouses();},400);
 }
 const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"house";
 function detectFormat(objs){
@@ -1153,6 +1156,7 @@ function switchHouse(id){
   $("#retList").innerHTML='<p class="hint">Run a query to see retrieval.</p>';$("#retStats").textContent="";
   LS.set("smriti.activeHouse",house.id);
   if(house.id!=="sample")$("#dsSel").value="mine";   // your house → land on YOUR dataset
+  else if($("#dsSel").value==="golden"||$("#dsSel").value==="mine")$("#dsSel").value="sft";
   renderHouses();rebuild();loadSample();
   toast("Switched to "+house.name);
 }
@@ -1176,7 +1180,7 @@ $("#houseExport").onclick=()=>{
   downloadJSON(slug(house.name)+"-rag-house.json",{
     _readme:"A complete SMṚTI RAG House: documents, chunking config, fine-tuning dataset (JSONL string), and behaviour prompt. Import it into SMṚTI on any device to restore the whole house.",
     format:"smriti-house-v1",exported:new Date().toISOString(),
-    name:house.name,chunkSize:house.chunkSize,sys:house.sys||"",jsonl:house.jsonl||"",
+    name:house.name,chunkSize:house.chunkSize,sys:house.sys||"",jsonl:house.jsonl||"",golden:house.golden||"",
     docs:docs.map(d=>({title:d.title,text:d.text}))});
 };
 $("#houseImportBtn").onclick=()=>$("#houseImport").click();
@@ -1186,7 +1190,7 @@ $("#houseImport").onchange=async e=>{
     const o=JSON.parse(await f.text());
     if(!o||!Array.isArray(o.docs)||!o.docs.length)throw new Error("no docs[] found");
     const h={id:"h"+Date.now().toString(36),name:(o.name||f.name.replace(/\.[^.]+$/,"")).slice(0,60),
-      chunkSize:+o.chunkSize||280,sys:(o.sys||"")+"",jsonl:(o.jsonl||"")+"",
+      chunkSize:+o.chunkSize||280,sys:(o.sys||"")+"",jsonl:(o.jsonl||"")+"",golden:(o.golden||"")+"",
       docs:o.docs.filter(d=>d&&d.text).map((d,i)=>({id:"i"+Date.now().toString(36)+i,title:(d.title||"Document "+(i+1)).slice(0,120),text:(d.text+"").slice(0,MAX_DOC_CHARS)}))};
     houses.push(h);switchHouse(h.id);toast("Imported “"+h.name+"” with "+h.docs.length+" doc(s)");
   }catch(err){toast("Import failed: "+err.message);}
@@ -1228,6 +1232,35 @@ $("#aiDraftBtn").onclick=async()=>{
 };
 
 /* ============ golden eval runner ============ */
+// Turn the house's reviewed SFT dataset (★ my dataset) into a golden eval set:
+// each user question becomes an eval query, and salient terms from its answer become must_include checks.
+function deriveMustInclude(answer){
+  if(/don't have|not in our records|no record|can't confirm|do not have/i.test(answer))return ["don't have"];
+  // numbers with a unit are the strongest anchors (e.g. "3.5 hours", "80,000 km", "70%")
+  const withUnit=(answer.match(/\d[\d,]*(?:\.\d+)?\s?(?:km|kg|kwh|days?|hours?|hrs?|minutes?|mins?|years?|yrs?|%|percent|litres?|l\b)/gi)||[]).map(s=>s.trim());
+  if(withUnit.length)return [...new Set(withUnit)].slice(0,2);
+  // multi-digit or decimal numbers (skip bare single digits like the "1" in "S1")
+  const bigNums=(answer.match(/\b\d{2,}(?:[,.]\d+)*\b|\b\d+\.\d+\b/g)||[]);
+  if(bigNums.length)return [...new Set(bigNums)].slice(0,2);
+  // else the two longest content words as anchors
+  const words=[...new Set(tok(answer))].filter(w=>w.length>=5&&!/^\d/.test(w)).sort((a,b)=>b.length-a.length);
+  return words.slice(0,2);
+}
+$("#promoteBtn").onclick=()=>{
+  const mine=(house.jsonl||"").split("\n").filter(l=>l.trim()).map(l=>{try{return JSON.parse(l);}catch(e){return null;}}).filter(o=>o&&Array.isArray(o.messages));
+  if(!mine.length){$("#valOut").innerHTML='<div class="vres bad">★ Your dataset is empty. Draft it first (dataset selector → ★ My dataset → ✍️ Auto-draft), review the examples, then promote.</div>';return;}
+  const seen=new Set();const gold=[];
+  mine.forEach((o,i)=>{
+    const u=(o.messages.find(m=>m.role==="user")||{}).content||"";
+    const a=(o.messages.find(m=>m.role==="assistant")||{}).content||"";
+    if(!u||!a||seen.has(u))return;seen.add(u);
+    const mi=deriveMustInclude(a);
+    gold.push({id:"g"+(i+1),category:/don't have|not in our records/i.test(a)?"refusal":"fact",question:u,gold_answer:a,must_include:mi.length?mi:[tok(a)[0]||"answer"]});
+  });
+  house.golden=gold.map(o=>JSON.stringify(o)).join("\n");saveHouses();
+  $("#dsSel").value="golden";loadSample();renderHouses();
+  $("#valOut").innerHTML='<div class="vres good">✓ Built '+gold.length+' golden eval example(s) from your reviewed dataset. <b>Now human-check them:</b> the questions are your own, but the auto-derived <span class="mono">must_include</span> terms are a guess — tighten each to the fact that truly must appear, remove weak ones, then ▶ Run eval. This is the promotion step every team does: turn support logs into a frozen regression set.</div>';
+};
 $("#runEvalBtn").onclick=()=>{
   const lines=$("#jsonlBox").value.split("\n").filter(l=>l.trim());
   const evals=[];
@@ -1467,7 +1500,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v21";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v22";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
