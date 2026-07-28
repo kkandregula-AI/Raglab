@@ -612,42 +612,43 @@ function simulatedAnswer(q,hits){
   const top=best.slice(0,2);
   return top.map(b=>b.s+" [Source "+(b.i+1)+"]").join(" ")+"\n\n— Simulated composer: stitched on-device from the highest-overlap sentences in your retrieved chunks.";
 }
-/* Keyless answer providers, tried in order. 1) Anthropic — works with no key inside the Claude app's
-   artifact preview (platform-provided). 2) Pollinations unified endpoint (2026). 3) Pollinations legacy.
-   All free for the user; whichever responds first is used, and the chip shows which. */
+/* Keyless answer providers. 1) Anthropic — works with no key inside the Claude app's artifact preview.
+   2) Pollinations endpoints (2026 unified + legacy), raced in parallel. Short timeouts so the
+   pipeline never appears stuck; on total failure the on-device composer answers. */
 async function tryFetch(url,opts,timeout){
   const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),timeout);
   try{return await fetch(url,{...opts,signal:ctrl.signal});}finally{clearTimeout(t);}
 }
-async function freeAnswer(prompt){
-  // 1. Anthropic (keyless inside Claude artifacts)
+async function freeAnswer(prompt,onStatus){
+  const say=s=>{try{onStatus&&onStatus(s);}catch(e){}};
+  // 1. Anthropic (keyless inside Claude artifacts) — quick attempt
+  say("Trying provider 1/2: Claude…");
   try{
     const res=await tryFetch("https://api.anthropic.com/v1/messages",{method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,messages:[{role:"user",content:prompt}]})},20000);
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,messages:[{role:"user",content:prompt}]})},12000);
     if(res.ok){const d=await res.json();
       const txt=(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       if(txt)return{text:txt,provider:"Claude"};}
   }catch(e){}
-  // 2. Pollinations unified endpoint (GET, free tier)
-  try{
-    const res=await tryFetch("https://gen.pollinations.ai/text/"+encodeURIComponent(prompt.slice(0,1800)),{},25000);
-    if(res.ok){const txt=(await res.text()).trim();if(txt&&txt.length>2)return{text:txt,provider:"Pollinations"};}
-  }catch(e){}
-  // 3. Pollinations legacy endpoints
-  try{
-    const res=await tryFetch("https://text.pollinations.ai/openai",{method:"POST",
+  // 2. Pollinations — all endpoints raced in parallel, first good answer wins
+  say("Trying provider 2/2: Pollinations (free community AI)…");
+  const attempts=[
+    (async()=>{const r=await tryFetch("https://gen.pollinations.ai/text/"+encodeURIComponent(prompt.slice(0,1800)),{},15000);
+      if(!r.ok)throw 0;const t=(await r.text()).trim();if(t.length<3)throw 0;return t;})(),
+    (async()=>{const r=await tryFetch("https://text.pollinations.ai/openai",{method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({messages:[{role:"user",content:prompt}],model:"openai"})},25000);
-    if(res.ok){
-      let txt="";try{const d=await res.clone().json();txt=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||"";}catch(e){txt=await res.text();}
-      txt=(txt||"").trim();if(txt)return{text:txt,provider:"Pollinations"};}
-  }catch(e){}
+      body:JSON.stringify({messages:[{role:"user",content:prompt}],model:"openai"})},15000);
+      if(!r.ok)throw 0;
+      let t="";try{const d=await r.clone().json();t=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||"";}catch(e){t=await r.text();}
+      t=(t||"").trim();if(!t)throw 0;return t;})(),
+    (async()=>{const r=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500)),{},15000);
+      if(!r.ok)throw 0;const t=(await r.text()).trim();if(!t)throw 0;return t;})()
+  ];
   try{
-    const res=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500)),{},25000);
-    if(res.ok){const txt=(await res.text()).trim();if(txt)return{text:txt,provider:"Pollinations"};}
-  }catch(e){}
-  throw new Error("no free provider reachable");
+    const txt=await Promise.any(attempts);
+    return{text:txt,provider:"Pollinations"};
+  }catch(e){throw new Error("no free provider reachable");}
 }
 
 let busy=false;
@@ -672,7 +673,7 @@ async function runQuery(){
   let ans,provider=null;
   if(wantAI){
     $("#ansBox").textContent="Asking the free AI over your retrieved context…";
-    try{const r2=await freeAnswer(prompt);ans=r2.text;provider=r2.provider;}
+    try{const r2=await freeAnswer(prompt,s=>{$("#ansBox").textContent=s+" (retrieval is done — this step is just the answer)";});ans=r2.text;provider=r2.provider;}
     catch(e){ans=simulatedAnswer(q,r.hits)+"\n\n(No free AI provider was reachable just now — showed the on-device simulated answer instead. Try again in a moment.)";}
   }else ans=simulatedAnswer(q,r.hits);
   $("#ansBox").textContent=ans;
@@ -703,7 +704,7 @@ async function runGeneral(){
   const box=$("#genBox");box.style.display="block";
   box.textContent="Asking the free community AI with no document context…";
   try{
-    const r2=await freeAnswer("Answer this question briefly using your general knowledge. If it seems to be about a specific company's internal policies or products that you cannot know, say so honestly. Question: "+lastQ);
+    const r2=await freeAnswer("Answer this question briefly using your general knowledge. If it seems to be about a specific company's internal policies or products that you cannot know, say so honestly. Question: "+lastQ,s=>{box.textContent=s;});
     box.textContent=r2.text;
     $("#genChip").className="modechip real";$("#genChip").textContent="Live · "+r2.provider+" · general knowledge";
   }catch(e){
@@ -1005,7 +1006,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v9";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v10";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
