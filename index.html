@@ -98,6 +98,9 @@ label{font-size:12.5px;color:var(--muted);font-weight:600;display:block;margin:1
 @media(prefers-reduced-motion:reduce){.stage{transition:none}.stage .dot{transition:none}}
 
 .answer{border:1px solid var(--line);border-radius:var(--r);background:var(--surface2);padding:16px;font-size:14.5px;line-height:1.65;white-space:pre-wrap}
+.ansmain{color:var(--ok);font-weight:600}
+.ansnote{color:var(--muted);font-size:12.5px;margin-top:12px;font-weight:400}
+.srcref{color:var(--hit);font-weight:700}
 .srcchip{display:inline-block;background:rgba(240,178,62,.14);color:var(--hit);border-radius:7px;padding:1px 8px;font-size:11.5px;font-weight:700;margin:2px 3px 0 0}
 .modechip{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;border-radius:7px;padding:3px 9px}
 .modechip.sim{background:rgba(139,146,173,.18);color:var(--muted)}
@@ -256,6 +259,10 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
       </select>
       <span class="tag">Retrieval is always on-device; only the final answer step uses the free community AI</span>
     </div>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="healthBtn" style="padding:7px 12px;font-size:12.5px">🩺 Test free-AI providers</button>
+    </div>
+    <div id="healthOut" style="margin-top:6px;font-size:12.5px;line-height:1.7"></div>
     <div class="row" style="margin-top:8px;gap:6px" id="qChips"></div>
   </div>
 
@@ -461,6 +468,14 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2400);};
 const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}};
+/* sentence splitter that doesn't break on decimals like "3.5 hours" */
+const splitSents=t=>(t.match(/(?:[^.!?]|[.!?](?=\d))+(?:[.!?]+(?!\d)|$)\s*/g)||[t]).filter(s=>s.trim());
+/* render an answer: main text in green, notes muted, [Source N] highlighted */
+function renderAnswer(el,text){
+  const parts=text.split(/\n\n(?=—|\()/);
+  const main=esc(parts[0]).replace(/\[Source (\d+)\]/g,'<span class="srcref">[Source $1]</span>');
+  el.innerHTML='<span class="ansmain">'+main+'</span>'+parts.slice(1).map(p=>'<div class="ansnote">'+esc(p)+'</div>').join('');
+}
 
 /* ============ sample knowledge base ============ */
 const SAMPLE_DOCS=[
@@ -487,7 +502,7 @@ const DOC_COLORS=["#8FA7FF","#F0B23E","#4FD8A6","#F26D6D","#C79BFF","#5FD0E8","#
 function chunkDocs(){
   chunks=[];
   docs.forEach((d,di)=>{
-    const sents=d.text.match(/[^.!?]+[.!?]+/g)||[d.text];
+    const sents=splitSents(d.text);
     let buf="",idx=0,prevTail="";
     const flush=()=>{if(buf.trim()){chunks.push({id:d.id+"#"+idx,doc:d.title,di,text:(prevTail?prevTail+" ":"")+buf.trim()});prevTail=buf.trim().split(" ").slice(-8).join(" ");idx++;buf="";}};
     for(const s of sents){ if((buf+s).length>chunkSize) flush(); buf+=s; }
@@ -497,7 +512,7 @@ function chunkDocs(){
 
 /* ============ TF-IDF embeddings ============ */
 const STOP=new Set("a an the is are was were be been to of in on at for with and or as by from this that these those it its can will must may not no per each any all only if than then when what how do does".split(" "));
-const tok=t=>t.toLowerCase().replace(/[^a-z0-9\s%.-]/g," ").split(/\s+/).filter(w=>w.length>1&&!STOP.has(w));
+const tok=t=>t.toLowerCase().replace(/[^a-z0-9\s%.-]/g," ").split(/\s+/).filter(w=>(w.length>1||/^\d$/.test(w))&&!STOP.has(w));
 function buildIndex(){
   vocab=new Map();const dfs=new Map();
   chunks.forEach(c=>{c.toks=tok(c.text);const seen=new Set();
@@ -604,7 +619,7 @@ function buildPrompt(q,hits){
 function simulatedAnswer(q,hits){
   const qt=new Set(tok(q));
   const best=[];
-  hits.forEach((h,i)=>{(h.c.text.match(/[^.!?]+[.!?]+/g)||[h.c.text]).forEach(s=>{
+  hits.forEach((h,i)=>{splitSents(h.c.text).forEach(s=>{
     const st=tok(s);const ov=st.filter(w=>qt.has(w)).length;
     if(ov>0)best.push({s:s.trim(),ov,i});});});
   best.sort((a,b)=>b.ov-a.ov);
@@ -612,43 +627,54 @@ function simulatedAnswer(q,hits){
   const top=best.slice(0,2);
   return top.map(b=>b.s+" [Source "+(b.i+1)+"]").join(" ")+"\n\n— Simulated composer: stitched on-device from the highest-overlap sentences in your retrieved chunks.";
 }
-/* Keyless answer providers. 1) Anthropic — works with no key inside the Claude app's artifact preview.
-   2) Pollinations endpoints (2026 unified + legacy), raced in parallel. Short timeouts so the
-   pipeline never appears stuck; on total failure the on-device composer answers. */
+/* Keyless answer providers, ALL raced in parallel — first good answer wins.
+   Anthropic works keyless inside the Claude app preview; Pollinations routes (multiple upstream
+   models, 2026 unified + legacy endpoints) work on the open web. On total failure → on-device composer. */
 async function tryFetch(url,opts,timeout){
   const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),timeout);
   try{return await fetch(url,{...opts,signal:ctrl.signal});}finally{clearTimeout(t);}
 }
+const PROVIDERS=[
+ {name:"Claude",run:async(prompt,tmo)=>{
+   const r=await tryFetch("https://api.anthropic.com/v1/messages",{method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,messages:[{role:"user",content:prompt}]})},tmo);
+   if(!r.ok)throw 0;const d=await r.json();
+   const t=(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+   if(!t)throw 0;return t;}},
+ {name:"Pollinations",run:async(prompt,tmo)=>{
+   const r=await tryFetch("https://gen.pollinations.ai/text/"+encodeURIComponent(prompt.slice(0,1800)),{},tmo);
+   if(!r.ok)throw 0;const t=(await r.text()).trim();if(t.length<3)throw 0;return t;}},
+ {name:"Pollinations · openai",run:async(prompt,tmo)=>{
+   const r=await tryFetch("https://text.pollinations.ai/openai",{method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({messages:[{role:"user",content:prompt}],model:"openai"})},tmo);
+   if(!r.ok)throw 0;
+   let t="";try{const d=await r.clone().json();t=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||"";}catch(e){t=await r.text();}
+   t=(t||"").trim();if(!t)throw 0;return t;}},
+ {name:"Pollinations · mistral",run:async(prompt,tmo)=>{
+   const r=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500))+"?model=mistral",{},tmo);
+   if(!r.ok)throw 0;const t=(await r.text()).trim();if(!t)throw 0;return t;}},
+ {name:"Pollinations · legacy",run:async(prompt,tmo)=>{
+   const r=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500)),{},tmo);
+   if(!r.ok)throw 0;const t=(await r.text()).trim();if(!t)throw 0;return t;}}
+];
 async function freeAnswer(prompt,onStatus){
-  const say=s=>{try{onStatus&&onStatus(s);}catch(e){}};
-  // 1. Anthropic (keyless inside Claude artifacts) — quick attempt
-  say("Trying provider 1/2: Claude…");
-  try{
-    const res=await tryFetch("https://api.anthropic.com/v1/messages",{method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,messages:[{role:"user",content:prompt}]})},12000);
-    if(res.ok){const d=await res.json();
-      const txt=(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
-      if(txt)return{text:txt,provider:"Claude"};}
-  }catch(e){}
-  // 2. Pollinations — all endpoints raced in parallel, first good answer wins
-  say("Trying provider 2/2: Pollinations (free community AI)…");
-  const attempts=[
-    (async()=>{const r=await tryFetch("https://gen.pollinations.ai/text/"+encodeURIComponent(prompt.slice(0,1800)),{},15000);
-      if(!r.ok)throw 0;const t=(await r.text()).trim();if(t.length<3)throw 0;return t;})(),
-    (async()=>{const r=await tryFetch("https://text.pollinations.ai/openai",{method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({messages:[{role:"user",content:prompt}],model:"openai"})},15000);
-      if(!r.ok)throw 0;
-      let t="";try{const d=await r.clone().json();t=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||"";}catch(e){t=await r.text();}
-      t=(t||"").trim();if(!t)throw 0;return t;})(),
-    (async()=>{const r=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500)),{},15000);
-      if(!r.ok)throw 0;const t=(await r.text()).trim();if(!t)throw 0;return t;})()
-  ];
-  try{
-    const txt=await Promise.any(attempts);
-    return{text:txt,provider:"Pollinations"};
-  }catch(e){throw new Error("no free provider reachable");}
+  try{onStatus&&onStatus("Racing "+PROVIDERS.length+" free providers in parallel — first answer wins…");}catch(e){}
+  const attempts=PROVIDERS.map(p=>p.run(prompt,18000).then(text=>({text,provider:p.name.split(" ·")[0]})));
+  try{return await Promise.any(attempts);}
+  catch(e){throw new Error("no free provider reachable");}
+}
+async function providerHealth(el){
+  el.innerHTML='<span class="hint">Pinging '+PROVIDERS.length+' providers…</span>';
+  const rows=await Promise.all(PROVIDERS.map(async p=>{
+    const t0=performance.now();
+    try{await p.run("Reply with the single word: pong",12000);
+      return '<span style="color:var(--ok)">✓ '+esc(p.name)+' — reachable ('+Math.round(performance.now()-t0)+' ms)</span>';}
+    catch(e){return '<span style="color:var(--bad)">✗ '+esc(p.name)+' — blocked or down from this network</span>';}
+  }));
+  rows.push('<span class="hint">If all are ✗ here but you\'re online, this environment (e.g. the in-app preview) blocks these domains — test the deployed URL in a normal browser.</span>');
+  el.innerHTML=rows.join("<br>");
 }
 
 let busy=false;
@@ -676,7 +702,7 @@ async function runQuery(){
     try{const r2=await freeAnswer(prompt,s=>{$("#ansBox").textContent=s+" (retrieval is done — this step is just the answer)";});ans=r2.text;provider=r2.provider;}
     catch(e){ans=simulatedAnswer(q,r.hits)+"\n\n(No free AI provider was reachable just now — showed the on-device simulated answer instead. Try again in a moment.)";}
   }else ans=simulatedAnswer(q,r.hits);
-  $("#ansBox").textContent=ans;
+  renderAnswer($("#ansBox"),ans);
   $("#ansChip").className="modechip "+(provider?"real":"sim");
   $("#ansChip").textContent=provider?"Live · "+provider+" (free, keyless)":"Simulated · on-device";
   $("#srcRow").innerHTML=r.hits.map((h,i)=>`<span class="srcchip">Source ${i+1} · ${esc(h.c.doc)}</span>`).join("");
@@ -705,7 +731,7 @@ async function runGeneral(){
   box.textContent="Asking the free community AI with no document context…";
   try{
     const r2=await freeAnswer("Answer this question briefly using your general knowledge. If it seems to be about a specific company's internal policies or products that you cannot know, say so honestly. Question: "+lastQ,s=>{box.textContent=s;});
-    box.textContent=r2.text;
+    box.textContent="";renderAnswer(box,r2.text);
     $("#genChip").className="modechip real";$("#genChip").textContent="Live · "+r2.provider+" · general knowledge";
   }catch(e){
     box.textContent="The free community AI is unreachable right now, and general answers can't be simulated on-device — the offline composer can only stitch text from your documents, which is precisely the difference between grounded and ungrounded answering. Try again when online.";
@@ -971,6 +997,7 @@ $("#chunkSize").oninput=e=>{chunkSize=+e.target.value;$("#csLabel").textContent=
 $("#chunkSize").onchange=()=>{LS.set("smriti.chunkSize",chunkSize);rebuild();toast("Re-chunked & re-indexed");};
 $("#askBtn").onclick=runQuery;
 $("#genBtn").onclick=runGeneral;
+$("#healthBtn").onclick=()=>providerHealth($("#healthOut"));
 $("#dlStoreBtn").onclick=exportVectorStore;
 $("#dlTraceBtn").onclick=exportTrace;
 $("#dlWeightsBtn").onclick=exportWeights;
@@ -1006,7 +1033,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v10";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v12";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
