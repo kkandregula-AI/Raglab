@@ -334,6 +334,16 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
   <p class="sub">RAG gives a model an <b>open book</b>. Fine-tuning changes the model's <b>handwriting</b> — its weights — so behaviour, tone, and domain fluency are baked in. In classical terms: RAG is <b>Smṛti</b> (recalled from an external store), fine-tuning is <b>Saṃskāra</b> (impressions carved into the model itself).</p>
 
   <div class="card">
+    <div class="row">
+      <h3 style="margin:0">🏠 Fine-tuning for:</h3>
+      <select id="houseSel2" style="width:auto;flex:1;min-width:180px" aria-label="Active RAG house"></select>
+    </div>
+    <p class="hint" id="tuneHouseHint"></p>
+    <p style="font-size:13px">Everything on this page works on the active house: ★ its dataset (draft it from its documents below), its behaviour prompt, its few-shot preview, and its downloads. The same house you built in RAG is the domain you fine-tune here.</p>
+    <button class="ghost" id="goBuildBtn">＋ Create or manage houses → Build tab</button>
+  </div>
+
+  <div class="card">
     <h3>The types of fine-tuning</h3>
     <div id="ftTypes"></div>
   </div>
@@ -1104,11 +1114,14 @@ function exportWeights(){
 
 /* ============ RAG House management ============ */
 function renderHouses(){
-  $("#houseSel").innerHTML=houses.map(h=>`<option value="${esc(h.id)}"${h.id===house.id?" selected":""}>${h.id==="sample"?"🏭 ":"🏠 "}${esc(h.name)}</option>`).join("");
+  const opts=houses.map(h=>`<option value="${esc(h.id)}"${h.id===house.id?" selected":""}>${h.id==="sample"?"🏭 ":"🏠 "}${esc(h.name)}</option>`).join("");
+  $("#houseSel").innerHTML=opts;
+  if($("#houseSel2"))$("#houseSel2").innerHTML=opts;
   $("#houseDel").disabled=house.id==="sample";
   $("#resetKbBtn").textContent=house.id==="sample"?"Reset sample KB":"Clear all documents";
   const ds=(house.jsonl||"").split("\n").filter(l=>l.trim()).length;
   $("#houseHint").textContent="Active: "+house.name+" · "+docs.length+" doc(s) · "+ds+" dataset example(s). Everything in a house stays in this browser; Export to back it up or move devices.";
+  if($("#tuneHouseHint"))$("#tuneHouseHint").textContent=docs.length+" doc(s) indexed · "+ds+" dataset example(s) · behaviour prompt "+((house.sys||"").trim()?"set":"not set yet")+(house.id==="sample"?" · (the demo house — create your own to fine-tune your domain)":"");
   $("#sysBox").value=house.sys||"";
 }
 function switchHouse(id){
@@ -1123,10 +1136,13 @@ function switchHouse(id){
   $("#srcRow").innerHTML="";$("#promptPreview").textContent="The exact prompt sent to the LLM appears here after a query.";
   $("#retList").innerHTML='<p class="hint">Run a query to see retrieval.</p>';$("#retStats").textContent="";
   LS.set("smriti.activeHouse",house.id);
+  if(house.id!=="sample")$("#dsSel").value="mine";   // your house → land on YOUR dataset
   renderHouses();rebuild();loadSample();
   toast("Switched to "+house.name);
 }
 $("#houseSel").onchange=e=>switchHouse(e.target.value);
+if($("#houseSel2"))$("#houseSel2").onchange=e=>switchHouse(e.target.value);
+if($("#goBuildBtn"))$("#goBuildBtn").onclick=()=>switchTab("build");
 $("#houseNew").onclick=()=>{
   const n=$("#houseName").value.trim();
   if(!n){toast("Give your house a name first");return;}
@@ -1436,7 +1452,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v19";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v20";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
