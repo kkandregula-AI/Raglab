@@ -354,12 +354,17 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
       <p>Five ready-made sample datasets in real formats — including a <b>golden eval set</b> you can run against the live RAG, or <b>build from ★ your own reviewed dataset</b>. Load one, edit it, validate, then <b>download the .jsonl</b> as a template for your own data.</p>
       <label for="dsSel">Dataset</label>
       <select id="dsSel">
-        <option value="sft" selected>1 · SFT — Support Assistant (chat messages)</option>
-        <option value="ground">2 · Grounding & Refusal set (anti-hallucination)</option>
-        <option value="dpo">3 · Preference pairs — DPO (chosen vs rejected)</option>
-        <option value="cpt">4 · Continued pretraining (raw domain text)</option>
-        <option value="golden">5 · ✨ Golden eval set — scoring, not training</option>
-        <option value="mine">★ My dataset — for the active RAG house</option>
+        <optgroup label="── Reference samples (Aarambh demo · read-only) ──">
+          <option value="sft" selected>1 · SFT — Support Assistant (chat messages)</option>
+          <option value="ground">2 · Grounding & Refusal set (anti-hallucination)</option>
+          <option value="dpo">3 · Preference pairs — DPO (chosen vs rejected)</option>
+          <option value="cpt">4 · Continued pretraining (raw domain text)</option>
+          <option value="golden">5 · ✨ Golden eval set (Aarambh sample)</option>
+        </optgroup>
+        <optgroup label="── This house (editable · auto-saved) ──">
+          <option value="mine">★ My dataset — training data for this house</option>
+          <option value="mygolden">✨ My golden eval — scoring set for this house</option>
+        </optgroup>
       </select>
       <div class="row" id="goldenTools" style="margin-top:8px;display:none">
         <button class="ghost" id="runEvalBtn">▶ Run eval against active house's RAG</button>
@@ -395,8 +400,8 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
   </div>
 
   <div class="card">
-    <h3>Preview your house's tuned behaviour — few-shot</h3>
-    <p>Real fine-tuning bakes your dataset into the weights. The honest in-browser stand-in is <b>few-shot prompting</b>: the model is shown your behaviour prompt plus 3 examples from ★ your dataset, then your test question — a live preview of what tuning on that data would make permanent.</p>
+    <h3>Preview your house's tuned behaviour — few-shot (this is how you "query" fine-tuning here)</h3>
+    <p>SMṚTI can't train real weights in a browser (that needs GPUs) — so this is the honest stand-in: the model is shown <b>your behaviour prompt + 3 examples from ★ your dataset</b>, then your question. The reply previews what fine-tuning on that data would make permanent. The real fine-tuned model exists only after you take the exported JSONL to Colab/Unsloth or a provider's tuning API.</p>
     <label for="sysBox">Behaviour system prompt (saved per house)</label>
     <textarea id="sysBox" style="min-height:70px" placeholder="e.g. You are Sharma & Sons' assistant. Always warm, apologise first when something went wrong, answer in simple English, never invent offers or prices."></textarea>
     <label for="bpQ">Test question</label>
@@ -978,18 +983,21 @@ const DATASETS={
 function loadSample(){
   const v=$("#dsSel").value;
   $("#mineTools").style.display=v==="mine"?"flex":"none";
-  $("#goldenTools").style.display=v==="golden"?"flex":"none";
+  $("#goldenTools").style.display=(v==="mygolden")?"flex":"none";
+  const ro=(v!=="mine"&&v!=="mygolden");
+  $("#jsonlBox").readOnly=false; // all editable in-session; only mine/mygolden persist
   if(v==="mine"){$("#jsonlBox").value=house.jsonl||"";}
-  else if(v==="golden"){$("#jsonlBox").value=(house.golden&&house.golden.trim())?house.golden:DATASETS.golden.lines.map(o=>JSON.stringify(o)).join("\n");}
+  else if(v==="mygolden"){$("#jsonlBox").value=(house.golden&&house.golden.trim())?house.golden:"";
+    if(!house.golden||!house.golden.trim())$("#valOut").innerHTML='<div class="vres good" style="background:transparent;border-color:var(--line);color:var(--muted)">This house has no golden set yet. Draft ★ My dataset, review it, then tap “↑ Build golden set from ★ my dataset” to create one here.</div>';else $("#valOut").innerHTML="";return;}
   else{$("#jsonlBox").value=DATASETS[v].lines.map(o=>JSON.stringify(o)).join("\n");}
   $("#valOut").innerHTML="";
 }
 let jsonlSaveT=null;
 function maybeSaveMine(){
   const v=$("#dsSel").value;
-  if(v!=="mine"&&v!=="golden")return;
+  if(v!=="mine"&&v!=="mygolden")return;
   clearTimeout(jsonlSaveT);
-  jsonlSaveT=setTimeout(()=>{if(v==="mine")house.jsonl=$("#jsonlBox").value;else house.golden=$("#jsonlBox").value;saveHouses();},400);
+  jsonlSaveT=setTimeout(()=>{if(v==="mine")house.jsonl=$("#jsonlBox").value;else house.golden=$("#jsonlBox").value;saveHouses();renderHouses();},400);
 }
 const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"house";
 function detectFormat(objs){
@@ -1045,7 +1053,7 @@ function validateJSONL(){
 }
 function downloadJSONL(){
   const v=$("#dsSel").value;
-  const name=v==="mine"?slug(house.name)+"-dataset":DATASETS[v].name;
+  const name=v==="mine"?slug(house.name)+"-dataset":v==="mygolden"?slug(house.name)+"-golden-eval":DATASETS[v].name;
   const blob=new Blob([$("#jsonlBox").value],{type:"application/jsonl"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name+".jsonl";
   document.body.appendChild(a);a.click();a.remove();toast("Downloaded "+name+".jsonl");
@@ -1123,8 +1131,9 @@ function renderHouses(){
   $("#houseDel").disabled=house.id==="sample";
   $("#resetKbBtn").textContent=house.id==="sample"?"Reset sample KB":"Clear all documents";
   const ds=(house.jsonl||"").split("\n").filter(l=>l.trim()).length;
+  const gs=(house.golden||"").split("\n").filter(l=>l.trim()).length;
   $("#houseHint").textContent="Active: "+house.name+" · "+docs.length+" doc(s) · "+ds+" dataset example(s). Everything in a house stays in this browser; Export to back it up or move devices.";
-  if($("#tuneHouseHint"))$("#tuneHouseHint").textContent=docs.length+" doc(s) indexed · "+ds+" dataset example(s) · behaviour prompt "+((house.sys||"").trim()?"set":"not set yet");
+  if($("#tuneHouseHint"))$("#tuneHouseHint").textContent=docs.length+" doc(s) indexed · ★ "+ds+" training example(s) · ✨ "+gs+" golden eval(s) · behaviour prompt "+((house.sys||"").trim()?"set":"not set yet");
   const ta=$("#tuneAction");
   if(ta){
     let html="";
@@ -1156,7 +1165,7 @@ function switchHouse(id){
   $("#retList").innerHTML='<p class="hint">Run a query to see retrieval.</p>';$("#retStats").textContent="";
   LS.set("smriti.activeHouse",house.id);
   if(house.id!=="sample")$("#dsSel").value="mine";   // your house → land on YOUR dataset
-  else if($("#dsSel").value==="golden"||$("#dsSel").value==="mine")$("#dsSel").value="sft";
+  else if(["golden","mine","mygolden"].includes($("#dsSel").value))$("#dsSel").value="sft";
   renderHouses();rebuild();loadSample();
   toast("Switched to "+house.name);
 }
@@ -1258,8 +1267,8 @@ $("#promoteBtn").onclick=()=>{
     gold.push({id:"g"+(i+1),category:/don't have|not in our records/i.test(a)?"refusal":"fact",question:u,gold_answer:a,must_include:mi.length?mi:[tok(a)[0]||"answer"]});
   });
   house.golden=gold.map(o=>JSON.stringify(o)).join("\n");saveHouses();
-  $("#dsSel").value="golden";loadSample();renderHouses();
-  $("#valOut").innerHTML='<div class="vres good">✓ Built '+gold.length+' golden eval example(s) from your reviewed dataset. <b>Now human-check them:</b> the questions are your own, but the auto-derived <span class="mono">must_include</span> terms are a guess — tighten each to the fact that truly must appear, remove weak ones, then ▶ Run eval. This is the promotion step every team does: turn support logs into a frozen regression set.</div>';
+  $("#dsSel").value="mygolden";loadSample();renderHouses();
+  $("#valOut").innerHTML='<div class="vres good">✓ Built '+gold.length+' golden eval example(s) from your reviewed dataset. <b>Now human-check them:</b> the questions are your own, but the auto-derived <span class="mono">must_include</span> terms are a guess — tighten each to the fact that truly must appear, remove weak ones, then ▶ Run eval. To see how a <i>fine-tuned</i> model would answer these, use the <b>few-shot behaviour preview</b> below — it previews tuned behaviour without needing GPUs.</div>';
 };
 $("#runEvalBtn").onclick=()=>{
   const lines=$("#jsonlBox").value.split("\n").filter(l=>l.trim());
@@ -1500,7 +1509,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v22";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v23";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
