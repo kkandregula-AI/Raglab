@@ -155,6 +155,7 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
     </div>
     <div class="spacer"></div>
     <span id="modeChip" class="modechip real">Free AI · No key needed</span>
+    <button class="iconbtn" id="byokBtn" aria-label="Bring your own AI">⚙︎ My AI</button>
   </div>
   <nav role="tablist" aria-label="Sections">
     <button class="tab" role="tab" aria-selected="true" data-t="build">1 · Build KB</button>
@@ -507,6 +508,32 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
 
 <footer>SMṚTI · AI Education Series · 100% free for students — no API key, no signup. Retrieval runs on-device; final answers via free community AI, with an offline simulated fallback.<br>Designed & Architected by Krishnamurthy Kandregula · Made by Claude</footer>
 
+<!-- BYOK modal -->
+<div class="modal" id="byokModal" role="dialog" aria-modal="true" aria-label="Bring your own AI">
+  <div class="mbox">
+    <h3 class="disp" style="margin-bottom:6px">Bring your own AI (optional)</h3>
+    <p style="font-size:13px;color:var(--muted)">The free keyless providers always work as the base. Add your own API key and <b>your model answers first</b>, with the free race as automatic fallback. The key is stored only in this browser's localStorage and sent only to your chosen provider.</p>
+    <label for="byokProv">Provider</label>
+    <select id="byokProv">
+      <option value="anthropic">Anthropic (Claude)</option>
+      <option value="openai">OpenAI</option>
+      <option value="groq">Groq</option>
+      <option value="openrouter">OpenRouter</option>
+      <option value="gemini">Google Gemini</option>
+    </select>
+    <label for="byokModel">Model</label>
+    <input type="text" id="byokModel" class="mono" placeholder="model id">
+    <label for="byokKey">API key</label>
+    <input type="text" id="byokKey" class="mono" placeholder="paste your key" autocomplete="off">
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="byokSave">Save</button>
+      <button class="ghost" id="byokTest">Test key</button>
+      <button class="ghost" id="byokClear">Remove</button>
+      <button class="ghost" id="byokClose">Close</button>
+    </div>
+    <div id="byokOut" style="margin-top:8px;font-size:12.5px"></div>
+  </div>
+</div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -531,7 +558,7 @@ const SAMPLE_DOCS=[
  {id:"spec",title:"Product Spec — Aarambh S1 Scooter",text:"The Aarambh S1 is an electric scooter with a 3.2 kWh LFP battery pack delivering a certified IDC range of 142 km. Top speed is 90 km/h with a 6 kW peak motor. The S1 charges from 0 to 80 percent in 3.5 hours using the standard home charger, and in 55 minutes at an Aarambh FastGrid station. The scooter supports three ride modes: Eco, City, and Sprint. It includes a 7-inch touchscreen with turn-by-turn navigation, over-the-air software updates, and hill-hold assist. Boot space is 34 litres. The S1 is IP67 rated for water and dust resistance."},
  {id:"warranty",title:"Warranty & Service FAQ",text:"The Aarambh S1 battery is covered by an 8-year or 80,000 km warranty, whichever comes first, guaranteeing at least 70 percent capacity retention. The motor and controller carry a 3-year unlimited km warranty. Regular service is recommended every 6 months or 5,000 km. Service can be booked through the Aarambh app; doorstep service is available in 46 cities. Consumables such as brake pads and tyres are not covered under warranty. Water damage is covered only if the vehicle was used within its IP67 rating conditions. Warranty is void if the battery pack is opened by unauthorised personnel."},
  {id:"onboard",title:"New Engineer Onboarding Guide",text:"New engineers at Aarambh Motors complete a 2-week onboarding called Pravesh. Week 1 covers safety certification, the vehicle architecture bootcamp, and access setup for the Yantra design system and the firmware repository. Week 2 pairs each engineer with a mitra buddy for their first supervised task. All engineers must complete the high-voltage safety course before touching any battery hardware. Laptops are issued by IT within 2 days of joining; access requests go through the Sampark portal. The onboarding checklist must be signed off by the reporting manager by day 14."},
- {id:"about",title:"About SMṚTI — App Guide",text:"SMṚTI is a free educational RAG lab. Retrieval runs fully on your device: documents are split into chunks and embedded as TF-IDF vectors, and your question is matched against them using cosine similarity. No document ever leaves your browser. The final answer step uses a free keyless AI: inside the Claude app it is answered by Claude, and on the open web it is answered by free community models via Pollinations. No API key or signup is ever required. If no free AI is reachable, an on-device simulated composer stitches the answer from your retrieved chunks instead. The answer chip always shows which provider produced the answer. A RAG assistant like this one can only answer questions that are covered by documents in its knowledge base; if the answer is not in any indexed document, it should say it does not have it in records rather than guessing."}
+ {id:"about",title:"About SMṚTI — App Guide",text:"SMṚTI is a free educational RAG lab. Retrieval runs fully on your device: documents are split into chunks and embedded as TF-IDF vectors, and your question is matched against them using cosine similarity. No document ever leaves your browser. The final answer step uses a free keyless AI: inside the Claude app it is answered by Claude, and on the open web it is answered by free community models via Pollinations. No API key or signup is ever required. Optionally, you can bring your own AI: add an API key for Anthropic, OpenAI, Groq, OpenRouter, or Google Gemini in the My AI settings, and your chosen model answers first with the free providers as automatic fallback. If no AI is reachable, an on-device simulated composer stitches the answer from your retrieved chunks instead. The answer chip always shows which provider produced the answer. A RAG assistant like this one can only answer questions that are covered by documents in its knowledge base; if the answer is not in any indexed document, it should say it does not have it in records rather than guessing."}
 ];
 
 /* ============ state: RAG Houses ============ */
@@ -710,9 +737,11 @@ function buildPrompt(q,hits){
   return sysLine+` Answer ONLY from the context below. If the answer is not in the context, say "I don't have that in our records." Cite sources as [Source N].\n\n=== CONTEXT ===\n${ctx}\n\n=== QUESTION ===\n${q}`;
 }
 function simulatedAnswer(q,hits){
-  // confidence gate: if even the best chunk barely matches, refuse rather than stitch noise
-  if(!hits.length||hits[0].score<0.07)
-    return "I don't have that in our records. (Top similarity was only "+((hits[0]?hits[0].score:0)*100).toFixed(1)+"% — below the confidence threshold, so refusing beats guessing. This is the same gate production RAG systems use.)";
+  // floor gate: refuse only when there is essentially no signal at all.
+  // (An absolute threshold breaks on single-topic corpora where the main term's IDF collapses —
+  //  the coverage gate below is the real distractor check.)
+  if(!hits.length||hits[0].score<0.02)
+    return "I don't have that in our records. (Top similarity was only "+((hits[0]?hits[0].score:0)*100).toFixed(1)+"% — essentially no match in the knowledge base.)";
   const qt=new Set(tok(q));
   const best=[];const seen=new Set();
   hits.forEach((h,i)=>{splitSents(h.c.text).forEach(s=>{
@@ -769,8 +798,52 @@ const PROVIDERS=[
    const r=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500)),{},tmo);
    if(!r.ok)throw 0;const t=(await r.text()).trim();if(!t)throw 0;return t;}}
 ];
+/* ============ BYOK: bring your own AI (priority provider) ============ */
+const BYOK_DEFAULTS={anthropic:"claude-sonnet-4-6",openai:"gpt-4o-mini",groq:"llama-3.3-70b-versatile",openrouter:"meta-llama/llama-3.3-70b-instruct:free",gemini:"gemini-2.0-flash"};
+const BYOK_LABELS={anthropic:"Claude",openai:"OpenAI",groq:"Groq",openrouter:"OpenRouter",gemini:"Gemini"};
+function getByok(){const b=LS.get("smriti.byok",null);return (b&&b.key&&b.provider)?b:null;}
+async function byokCall(b,prompt,tmo){
+  const model=b.model||BYOK_DEFAULTS[b.provider];
+  if(b.provider==="anthropic"){
+    const r=await tryFetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
+      "Content-Type":"application/json","x-api-key":b.key,"anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model,max_tokens:800,messages:[{role:"user",content:prompt}]})},tmo);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    const t=(d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("\n").trim();
+    if(!t)throw new Error("empty response");return t;
+  }
+  if(b.provider==="gemini"){
+    const r=await tryFetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(b.key),
+      {method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})},tmo);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    const t=(((d.candidates||[])[0]||{}).content||{}).parts?.map(p=>p.text||"").join("").trim();
+    if(!t)throw new Error("empty response");return t;
+  }
+  // OpenAI-compatible chat completions: openai / groq / openrouter
+  const urls={openai:"https://api.openai.com/v1/chat/completions",
+              groq:"https://api.groq.com/openai/v1/chat/completions",
+              openrouter:"https://openrouter.ai/api/v1/chat/completions"};
+  const r=await tryFetch(urls[b.provider],{method:"POST",headers:{
+    "Content-Type":"application/json","Authorization":"Bearer "+b.key},
+    body:JSON.stringify({model,messages:[{role:"user",content:prompt}],max_tokens:800})},tmo);
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  const d=await r.json();
+  const t=(((d.choices||[])[0]||{}).message||{}).content;
+  if(!t||!t.trim())throw new Error("empty response");return t.trim();
+}
 async function freeAnswer(prompt,onStatus){
-  try{onStatus&&onStatus("Racing "+PROVIDERS.length+" free providers in parallel — first answer wins…");}catch(e){}
+  const say=s=>{try{onStatus&&onStatus(s);}catch(e){}};
+  const b=getByok();
+  if(b){
+    say("Trying your "+BYOK_LABELS[b.provider]+" ("+(b.model||BYOK_DEFAULTS[b.provider])+")…");
+    try{const t=await byokCall(b,prompt,20000);return{text:t,provider:"Your "+BYOK_LABELS[b.provider]};}
+    catch(e){say("Your "+BYOK_LABELS[b.provider]+" failed ("+e.message+") — falling back to free providers…");}
+  }
+  say("Racing "+PROVIDERS.length+" free providers in parallel — first answer wins…");
   const attempts=PROVIDERS.map(p=>p.run(prompt,18000).then(text=>({text,provider:p.name.split(" ·")[0]})));
   try{return await Promise.any(attempts);}
   catch(e){throw new Error("no free provider reachable");}
@@ -1205,7 +1278,36 @@ function switchTab(t){$$(".tab").forEach(b=>b.setAttribute("aria-selected",b.dat
 $$(".tab").forEach(b=>b.onclick=()=>switchTab(b.dataset.t));
 
 /* ============ mode ============ */
-function refreshMode(){/* free keyless build — nothing to configure */}
+function refreshMode(){
+  const b=getByok();
+  $("#modeChip").className="modechip real";
+  $("#modeChip").textContent=b?("My AI: "+BYOK_LABELS[b.provider]+" · free fallback"):"Free AI · No key needed";
+}
+const byokModal=$("#byokModal");
+$("#byokBtn").onclick=()=>{
+  const b=LS.get("smriti.byok",{provider:"anthropic",model:"",key:""});
+  $("#byokProv").value=b.provider||"anthropic";
+  $("#byokModel").value=b.model||"";
+  $("#byokModel").placeholder=BYOK_DEFAULTS[$("#byokProv").value];
+  $("#byokKey").value=b.key||"";$("#byokOut").textContent="";
+  byokModal.classList.add("open");};
+$("#byokProv").onchange=()=>{$("#byokModel").placeholder=BYOK_DEFAULTS[$("#byokProv").value];};
+$("#byokClose").onclick=()=>byokModal.classList.remove("open");
+byokModal.onclick=e=>{if(e.target===byokModal)byokModal.classList.remove("open");};
+$("#byokSave").onclick=()=>{
+  LS.set("smriti.byok",{provider:$("#byokProv").value,model:$("#byokModel").value.trim(),key:$("#byokKey").value.trim()});
+  refreshMode();byokModal.classList.remove("open");
+  toast(getByok()?"Saved — your AI answers first, free providers as fallback":"Saved (no key — staying on free providers)");};
+$("#byokClear").onclick=()=>{LS.set("smriti.byok",null);$("#byokKey").value="";refreshMode();toast("Key removed — back to free providers only");};
+$("#byokTest").onclick=async()=>{
+  const b={provider:$("#byokProv").value,model:$("#byokModel").value.trim(),key:$("#byokKey").value.trim()};
+  const out=$("#byokOut");
+  if(!b.key){out.innerHTML='<span style="color:var(--bad)">Paste a key first.</span>';return;}
+  out.textContent="Testing…";
+  try{const t0=performance.now();await byokCall(b,"Reply with the single word: pong",15000);
+    out.innerHTML='<span style="color:var(--ok)">✓ '+BYOK_LABELS[b.provider]+' reachable ('+Math.round(performance.now()-t0)+' ms) — save to use it.</span>';}
+  catch(e){out.innerHTML='<span style="color:var(--bad)">✗ '+esc(e.message)+' — check the key, model id, and that this network allows the provider.</span>';}
+};
 
 /* ============ build tab events ============ */
 $("#addDocBtn").onclick=()=>{const t=$("#ndTitle").value.trim(),x=$("#ndText").value.trim();
@@ -1334,7 +1436,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v18";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v19";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
