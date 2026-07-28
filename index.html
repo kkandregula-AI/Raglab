@@ -144,8 +144,7 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
       <small>Company Memory Engine · RAG & Fine-Tuning Lab</small>
     </div>
     <div class="spacer"></div>
-    <span id="modeChip" class="modechip sim">Simulated</span>
-    <button class="iconbtn" id="settingsBtn" aria-label="Settings">⚙︎ Key</button>
+    <span id="modeChip" class="modechip real">Free AI · No key needed</span>
   </div>
   <nav role="tablist" aria-label="Sections">
     <button class="tab" role="tab" aria-selected="true" data-t="build">1 · Build KB</button>
@@ -175,9 +174,12 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
       <textarea id="ndText" placeholder="Paste any company text here…"></textarea>
       <div class="row" style="margin-top:10px">
         <button class="primary" id="addDocBtn">Add document</button>
+        <button class="ghost" id="uploadBtn">📂 Upload files</button>
         <button class="ghost" id="resetKbBtn">Reset sample KB</button>
       </div>
-      <p class="hint">Documents live only in your browser (localStorage). Nothing is uploaded anywhere.</p>
+      <input type="file" id="fileInput" multiple accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.pdf,.docx" style="display:none">
+      <div class="hint" id="upStatus" role="status"></div>
+      <p class="hint"><b>Two ways to add:</b> type/paste a title + text and tap Add document, or tap Upload files (.txt, .md, .csv, .json, .html, .pdf, .docx) — the extracted text fills this form so you can review and edit it before tapping Add document. Documents live only in your browser (localStorage). Nothing is uploaded anywhere.</p>
     </div>
     <div class="card">
       <h3>Chunking</h3>
@@ -191,6 +193,20 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
       </div>
       <div class="chunkwrap" id="chunkList"></div>
     </div>
+  </div>
+
+  <div class="card">
+    <h3>Chunking best practices</h3>
+    <p>Chunking quality decides retrieval quality — most "RAG doesn't work" complaints are chunking problems. The discipline:</p>
+    <ul style="font-size:13.5px;color:var(--muted);padding-left:18px;display:flex;flex-direction:column;gap:7px">
+      <li><b>Split on semantic units, not raw characters.</b> Sentences, paragraphs, and headings are natural boundaries; never cut mid-sentence. (SMṚTI splits on sentences, then packs to size.)</li>
+      <li><b>Typical size: 200–500 tokens (~300–800 chars).</b> Too small → answers lose context; too big → similarity scores blur and irrelevant text rides along into the prompt. Drag the slider above and watch retrieval quality change.</li>
+      <li><b>Overlap 10–15%.</b> A little repetition at boundaries means a fact straddling two chunks is never lost. (See the trailing words repeated at each chunk start above.)</li>
+      <li><b>Prepend context to every chunk.</b> Adding the document title and section to the chunk text ("HR Leave Policy › Carry-forward: …") dramatically improves matching — called contextual chunking.</li>
+      <li><b>Respect structure.</b> Never split a table row, code block, or numbered list mid-structure; chunk them whole with their heading.</li>
+      <li><b>Store rich metadata.</b> Doc name, version, date, access level per chunk — needed for citations, freshness filtering, and permissions later.</li>
+      <li><b>Measure, don't guess.</b> Keep 20 test questions with known source chunks; tune chunk size/overlap until top-3 retrieval hits ≥90% of them.</li>
+    </ul>
   </div>
 </section>
 
@@ -210,6 +226,11 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
   <span class="k">"text"</span>: <span class="s">"Employees accrue 1.5 days of earned leave per month…"</span>,
   <span class="k">"embedding"</span>: [0.031, -0.114, 0.267, …],   <span class="c">// the "meaning" as numbers</span>
   <span class="k">"metadata"</span>: { <span class="k">"doc"</span>: <span class="s">"HR Leave Policy"</span>, <span class="k">"version"</span>: <span class="s">"2026-07"</span> } }</pre>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="dlStoreBtn">⬇ Download vector_store.json</button>
+      <span class="tag">Your real store: every chunk + its actual TF-IDF vector + metadata</span>
+    </div>
+    <p class="hint">Open it in any editor — this is exactly what sits inside a vector database, just readable. Re-download after adding documents or changing chunk size to see the store change.</p>
   </div>
 </section>
 
@@ -229,7 +250,11 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
         <option value="3" selected>Top-3 chunks</option>
         <option value="5">Top-5 chunks</option>
       </select>
-      <span class="tag" id="ansMode">Answer: simulated (add API key for real Claude)</span>
+      <select id="aiMode" style="width:auto" aria-label="Answer mode">
+        <option value="free" selected>Free AI answer (keyless)</option>
+        <option value="sim">Offline simulated</option>
+      </select>
+      <span class="tag">Retrieval is always on-device; only the final answer step uses the free community AI</span>
     </div>
     <div class="row" style="margin-top:8px;gap:6px" id="qChips"></div>
   </div>
@@ -251,8 +276,23 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
     <div class="row" style="justify-content:space-between">
       <h3>Grounded answer</h3><span id="ansChip" class="modechip sim">Simulated</span>
     </div>
-    <div class="answer" id="ansBox">Ask a question above. Try: “What is the warranty on the battery?” or “How do I apply for leave?”</div>
+    <div class="answer" id="ansBox">Ask a question above. Try: "What is the warranty on the battery?" or "How do I apply for leave?"</div>
     <div id="srcRow" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="dlTraceBtn" disabled>⬇ Download rag_trace.json</button>
+      <span class="tag">The full anatomy of this query: vectors, every similarity score, the exact prompt, the answer</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3>Outside RAG — general model answer</h3><span id="genChip" class="modechip sim">Ungrounded</span>
+    </div>
+    <p>Same question, <b>no documents attached</b> — the model answers from general knowledge only. Compare it with the grounded answer above: fluent, but no sources, and it can't know anything private to your company. This gap is exactly why RAG exists.</p>
+    <div class="answer" id="genBox" style="display:none"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="genBtn" disabled>Ask without my documents</button>
+    </div>
   </div>
 </section>
 
@@ -269,12 +309,20 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
 
   <div class="grid2">
     <div class="card">
-      <h3>Sample dataset — try the JSONL validator</h3>
-      <p>Fine-tuning data is usually <b>JSONL</b>: one training example per line, in chat <code class="mono">messages</code> format. Edit below and validate — the checks mirror what real pipelines enforce.</p>
-      <textarea id="jsonlBox" class="mono" style="min-height:220px;font-size:12px"></textarea>
+      <h3>Sample fine-tuning datasets — pick, edit, validate, download</h3>
+      <p>Four ready-made sample datasets in real training formats. Load one, edit it, run the validator, then <b>download the .jsonl</b> to use as a template for your own company data.</p>
+      <label for="dsSel">Dataset</label>
+      <select id="dsSel">
+        <option value="sft" selected>1 · SFT — Support Assistant (chat messages)</option>
+        <option value="ground">2 · Grounding & Refusal set (anti-hallucination)</option>
+        <option value="dpo">3 · Preference pairs — DPO (chosen vs rejected)</option>
+        <option value="cpt">4 · Continued pretraining (raw domain text)</option>
+      </select>
+      <textarea id="jsonlBox" class="mono" style="min-height:220px;font-size:12px;margin-top:8px"></textarea>
       <div class="row" style="margin-top:10px">
         <button class="primary" id="valBtn">Validate dataset</button>
         <button class="ghost" id="sampleBtn">Reload sample</button>
+        <button class="ghost" id="dlBtn">Download .jsonl</button>
       </div>
       <div id="valOut"></div>
     </div>
@@ -291,6 +339,45 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
         <li><b>Log real failures back in.</b> The best new training examples are yesterday's wrong answers, corrected by a human.</li>
       </ul>
     </div>
+  </div>
+
+  <div class="card">
+    <h3>How fine-tuning actually changes weights — live LoRA demo</h3>
+    <p>A model is billions of numbers (weights). Fine-tuning nudges them. <b>LoRA</b> doesn't touch the base weights at all — it trains two tiny matrices <b>A</b> and <b>B</b> whose product <b>ΔW = A·B</b> is added on top. Below is real LoRA arithmetic on a toy 32×32 layer (illustrative numbers, genuine math):</p>
+    <div class="grid3" style="text-align:center">
+      <div><canvas id="wBase" width="160" height="160" style="width:100%;max-width:160px;border:1px solid var(--line);border-radius:10px" aria-label="Base weights heatmap"></canvas><p class="hint">W (base) — frozen<br>1,024 params</p></div>
+      <div><canvas id="wDelta" width="160" height="160" style="width:100%;max-width:160px;border:1px solid var(--line);border-radius:10px" aria-label="LoRA delta heatmap"></canvas><p class="hint">ΔW = A·B — trained<br><b style="color:var(--ok)">only 128 params (12.5%)</b></p></div>
+      <div><canvas id="wMerged" width="160" height="160" style="width:100%;max-width:160px;border:1px solid var(--line);border-radius:10px" aria-label="Merged weights heatmap"></canvas><p class="hint">W + ΔW — the tuned model<br>behaviour changed, base intact</p></div>
+    </div>
+    <p style="margin-top:10px">Notice ΔW's stripey pattern — that's the fingerprint of a low-rank update (rank 2 here). This is why LoRA is cheap: on a real 7B-parameter model, the same trick trains ~0.1–1% of the weights, and you can keep one small adapter file per department while sharing one base model.</p>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="dlWeightsBtn">⬇ Download finetune_weights_demo.json</button>
+      <span class="tag">W, A, B, ΔW and merged — open and inspect the numbers</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>When is RAG enough, and when is fine-tuning required? — with this sample data</h3>
+    <div class="tscroll"><table>
+      <tr><th>Scenario (Aarambh Motors)</th><th>Right tool</th><th>Why</th></tr>
+      <tr><td><b>"What's the battery warranty?"</b> "How many leave days?"</td><td class="ok-t">RAG only</td><td>Pure fact lookup. It's in the docs, changes with policy edits, needs a citation. Fine-tuning facts in is fragile and unauditable.</td></tr>
+      <tr><td><b>Leave policy updated next April</b></td><td class="ok-t">RAG only</td><td>Re-index one document — done in seconds. A tuned model would need a retraining cycle for one number.</td></tr>
+      <tr><td><b>Every support reply must be warm, apologise first, offer doorstep service, never guess</b></td><td class="ok-t">Fine-tune (SFT + DPO)</td><td>That's behaviour, not facts — exactly what the sample SFT and preference datasets above teach. Prompting can do it, but drifts and eats tokens on every call.</td></tr>
+      <tr><td><b>Model garbles "IDC range", "LFP", "hill-hold", Telugu-English support mix</b></td><td class="ok-t">Domain-adaptive tuning</td><td>Vocabulary fluency lives in weights. Continued pretraining on the domain corpus (dataset 4) fixes the language itself.</td></tr>
+      <tr><td><b>Support bot that answers policy questions in the right tone and never hallucinates offers</b></td><td class="ok-t">Both</td><td>The production pattern: fine-tune the <i>behaviour</i> (tone + refusal reflex), RAG the <i>facts</i> (warranty, specs, leave). Each does what the other can't.</td></tr>
+    </table></div>
+    <p class="hint" style="margin-top:8px">Rule of thumb: if the answer should change when a document changes → RAG. If the answer should stay the same across all documents → fine-tuning. If unsure, start with RAG — it's cheaper, auditable, and reversible.</p>
+  </div>
+
+  <div class="card">
+    <h3>Do you need to "rent" a model? Subscriptions vs API vs your own weights</h3>
+    <p>Three access models, and students mix them up constantly:</p>
+    <ul style="font-size:13.5px;color:var(--muted);padding-left:18px;display:flex;flex-direction:column;gap:7px">
+      <li><b>Consumer chat subscription</b> (Claude, ChatGPT, Gemini apps — monthly plan). You're renting a finished assistant for <i>yourself</i>. Great for learning and personal work; many now support projects/file-upload, which is managed RAG on your documents. But it's not programmable — you can't build an app on it, and it does not include fine-tuning.</li>
+      <li><b>API (pay-per-token)</b>. You're renting raw model calls to build <i>your own</i> product — what SMṚTI would use with a key, and what any company assistant runs on. Costs scale with usage; RAG works by stuffing retrieved chunks into your prompts. Hosted fine-tuning, where offered, lives at this tier and varies by provider and model.</li>
+      <li><b>Open-weights models</b> (Llama, Mistral, Qwen, Gemma families). You download the weights — nothing rented. Full fine-tuning freedom (LoRA on a single GPU or even a good laptop for small models), total data privacy, and this is where the sample JSONL datasets above would actually be used with tools like Hugging Face + PEFT or Unsloth. Cost shifts from per-token fees to hardware.</li>
+    </ul>
+    <p><b>For learning RAG:</b> this free app + a consumer subscription is genuinely enough. <b>For learning fine-tuning:</b> you don't need to rent anything — a small open-weights model (1–8B) plus a free Colab/Kaggle GPU and the datasets from this page is the standard student path. <b>For a company product:</b> API for the model, your own vector store for the memory, and fine-tune only when behaviour demands it — exactly the decision table above.</p>
   </div>
 
   <div class="card">
@@ -363,27 +450,8 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
 </section>
 </main>
 
-<footer>SMṚTI · AI Education Series · Runs fully on-device; BYOK for live Claude answers.<br>Designed & Architected by Krishnamurthy Kandregula · Made by Claude</footer>
+<footer>SMṚTI · AI Education Series · 100% free for students — no API key, no signup. Retrieval runs on-device; final answers via free community AI, with an offline simulated fallback.<br>Designed & Architected by Krishnamurthy Kandregula · Made by Claude</footer>
 
-<!-- settings modal -->
-<div class="modal" id="setModal" role="dialog" aria-modal="true" aria-label="Settings">
-  <div class="mbox">
-    <h3 class="disp" style="margin-bottom:6px">Live answers (BYOK)</h3>
-    <p style="font-size:13px;color:var(--muted)">Add your Anthropic API key to replace the simulated composer with real Claude answers, grounded in your retrieved chunks. The key is stored only in this browser's localStorage.</p>
-    <label for="apiKey">Anthropic API key</label>
-    <input type="text" id="apiKey" class="mono" placeholder="sk-ant-…" autocomplete="off">
-    <label for="modelSel">Model</label>
-    <select id="modelSel">
-      <option value="claude-sonnet-4-6">claude-sonnet-4-6 (recommended)</option>
-      <option value="claude-haiku-4-5">claude-haiku-4-5 (fast/cheap)</option>
-    </select>
-    <div class="row" style="margin-top:14px">
-      <button class="primary" id="saveKeyBtn">Save</button>
-      <button class="ghost" id="clearKeyBtn">Clear key</button>
-      <button class="ghost" id="closeSetBtn">Close</button>
-    </div>
-  </div>
-</div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -392,18 +460,25 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2400);};
 const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}};
 
 /* ============ sample knowledge base ============ */
 const SAMPLE_DOCS=[
  {id:"leave",title:"HR Leave Policy (v2026-07)",text:"Aarambh Motors employees accrue 1.5 days of earned leave per month, totalling 18 days per year. Earned leave can be carried forward up to a maximum of 30 days. Casual leave is 8 days per year and cannot be carried forward. Sick leave is 10 days per year and requires a medical certificate for absences longer than 2 consecutive days. To apply for leave, employees must raise a request in the Sampark HR portal at least 3 working days in advance, except for sick leave. Leave during the festival blackout weeks of Diwali production ramp requires plant-head approval. Unused earned leave beyond 30 days is encashed every April at basic salary rate."},
  {id:"spec",title:"Product Spec — Aarambh S1 Scooter",text:"The Aarambh S1 is an electric scooter with a 3.2 kWh LFP battery pack delivering a certified IDC range of 142 km. Top speed is 90 km/h with a 6 kW peak motor. The S1 charges from 0 to 80 percent in 3.5 hours using the standard home charger, and in 55 minutes at an Aarambh FastGrid station. The scooter supports three ride modes: Eco, City, and Sprint. It includes a 7-inch touchscreen with turn-by-turn navigation, over-the-air software updates, and hill-hold assist. Boot space is 34 litres. The S1 is IP67 rated for water and dust resistance."},
  {id:"warranty",title:"Warranty & Service FAQ",text:"The Aarambh S1 battery is covered by an 8-year or 80,000 km warranty, whichever comes first, guaranteeing at least 70 percent capacity retention. The motor and controller carry a 3-year unlimited km warranty. Regular service is recommended every 6 months or 5,000 km. Service can be booked through the Aarambh app; doorstep service is available in 46 cities. Consumables such as brake pads and tyres are not covered under warranty. Water damage is covered only if the vehicle was used within its IP67 rating conditions. Warranty is void if the battery pack is opened by unauthorised personnel."},
- {id:"onboard",title:"New Engineer Onboarding Guide",text:"New engineers at Aarambh Motors complete a 2-week onboarding called Pravesh. Week 1 covers safety certification, the vehicle architecture bootcamp, and access setup for the Yantra design system and the firmware repository. Week 2 pairs each engineer with a mitra buddy for their first supervised task. All engineers must complete the high-voltage safety course before touching any battery hardware. Laptops are issued by IT within 2 days of joining; access requests go through the Sampark portal. The onboarding checklist must be signed off by the reporting manager by day 14."}
+ {id:"onboard",title:"New Engineer Onboarding Guide",text:"New engineers at Aarambh Motors complete a 2-week onboarding called Pravesh. Week 1 covers safety certification, the vehicle architecture bootcamp, and access setup for the Yantra design system and the firmware repository. Week 2 pairs each engineer with a mitra buddy for their first supervised task. All engineers must complete the high-voltage safety course before touching any battery hardware. Laptops are issued by IT within 2 days of joining; access requests go through the Sampark portal. The onboarding checklist must be signed off by the reporting manager by day 14."},
+ {id:"about",title:"About SMṚTI — App Guide",text:"SMṚTI is a free educational RAG lab. Retrieval runs fully on your device: documents are split into chunks and embedded as TF-IDF vectors, and your question is matched against them using cosine similarity. No document ever leaves your browser. The final answer step uses a free keyless AI: inside the Claude app it is answered by Claude, and on the open web it is answered by free community models via Pollinations. No API key or signup is ever required. If no free AI is reachable, an on-device simulated composer stitches the answer from your retrieved chunks instead. The answer chip always shows which provider produced the answer. A RAG assistant like this one can only answer questions that are covered by documents in its knowledge base; if the answer is not in any indexed document, it should say it does not have it in records rather than guessing."}
 ];
 
 /* ============ state ============ */
 let docs=LS.get("smriti.docs",null)||SAMPLE_DOCS.map(d=>({...d}));
+// one-time migration: give existing users the About doc so app meta-questions are answerable
+if(!docs.some(d=>d.id==="about")&&!LS.get("smriti.aboutAdded",false)){
+  docs.push({...SAMPLE_DOCS.find(d=>d.id==="about")});LS.set("smriti.docs",docs);LS.set("smriti.aboutAdded",true);}
+// keep the About doc's text current (it documents this app version)
+{const ab=docs.find(d=>d.id==="about"),cur=SAMPLE_DOCS.find(d=>d.id==="about");
+ if(ab&&ab.text!==cur.text){ab.text=cur.text;LS.set("smriti.docs",docs);}}
 let chunkSize=LS.get("smriti.chunkSize",280);
 let chunks=[],vocab=null,idf=null,proj=null,lastQuery=null;
 const DOC_COLORS=["#8FA7FF","#F0B23E","#4FD8A6","#F26D6D","#C79BFF","#5FD0E8","#F2A0C8"];
@@ -494,7 +569,7 @@ function renderChunks(){
   $("#chunkList").innerHTML=chunks.map(c=>`<div class="chunk" style="--dc:${DOC_COLORS[c.di%DOC_COLORS.length]}">
     <div class="cid">${esc(c.id)} · ${esc(c.doc)}</div>${esc(c.text)}</div>`).join("");
 }
-function persistAndRebuild(){LS.set("smriti.docs",docs);rebuild();}
+function persistAndRebuild(){if(!LS.set("smriti.docs",docs))toast("Storage full — docs work this session but won't survive a reload. Remove some documents.");rebuild();}
 function rebuild(){chunkDocs();buildIndex();renderDocs();renderChunks();drawLegend();drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);}
 
 /* ============ pipeline ============ */
@@ -518,7 +593,7 @@ async function animatePipe(upto){
 }
 
 /* ============ RAG query ============ */
-const SUGGESTIONS=["How many earned leave days per month?","What is the battery warranty?","How fast does the S1 charge?","What happens in onboarding week 2?","Can I carry forward casual leave?"];
+const SUGGESTIONS=["Which LLM answers my questions here?","How many earned leave days per month?","What is the battery warranty?","How fast does the S1 charge?","What happens in onboarding week 2?","Is my data uploaded anywhere?"];
 function renderChips(){$("#qChips").innerHTML=SUGGESTIONS.map(s=>`<button class="tag" style="cursor:pointer;background:var(--surface2)" data-q="${esc(s)}">${esc(s)}</button>`).join("");
   $$("#qChips [data-q]").forEach(b=>b.onclick=()=>{$("#qInput").value=b.dataset.q;runQuery();});}
 
@@ -535,17 +610,44 @@ function simulatedAnswer(q,hits){
   best.sort((a,b)=>b.ov-a.ov);
   if(!best.length)return "I don't have that in our records. (No retrieved sentence overlapped your question — try rephrasing, or add a document that covers it.)";
   const top=best.slice(0,2);
-  return top.map(b=>b.s+" [Source "+(b.i+1)+"]").join(" ")+"\n\n— Simulated composer: stitched from the highest-overlap sentences in your retrieved chunks. Add an API key (⚙︎) for a real Claude answer over the same context.";
+  return top.map(b=>b.s+" [Source "+(b.i+1)+"]").join(" ")+"\n\n— Simulated composer: stitched on-device from the highest-overlap sentences in your retrieved chunks.";
 }
-async function realAnswer(prompt){
-  const key=LS.get("smriti.key",""),model=LS.get("smriti.model","claude-sonnet-4-6");
-  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
-    "Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01",
-    "anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model,max_tokens:600,messages:[{role:"user",content:prompt}]})});
-  if(!res.ok){const e=await res.text();throw new Error("API "+res.status+": "+e.slice(0,140));}
-  const data=await res.json();
-  return (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+/* Keyless answer providers, tried in order. 1) Anthropic — works with no key inside the Claude app's
+   artifact preview (platform-provided). 2) Pollinations unified endpoint (2026). 3) Pollinations legacy.
+   All free for the user; whichever responds first is used, and the chip shows which. */
+async function tryFetch(url,opts,timeout){
+  const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),timeout);
+  try{return await fetch(url,{...opts,signal:ctrl.signal});}finally{clearTimeout(t);}
+}
+async function freeAnswer(prompt){
+  // 1. Anthropic (keyless inside Claude artifacts)
+  try{
+    const res=await tryFetch("https://api.anthropic.com/v1/messages",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,messages:[{role:"user",content:prompt}]})},20000);
+    if(res.ok){const d=await res.json();
+      const txt=(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+      if(txt)return{text:txt,provider:"Claude"};}
+  }catch(e){}
+  // 2. Pollinations unified endpoint (GET, free tier)
+  try{
+    const res=await tryFetch("https://gen.pollinations.ai/text/"+encodeURIComponent(prompt.slice(0,1800)),{},25000);
+    if(res.ok){const txt=(await res.text()).trim();if(txt&&txt.length>2)return{text:txt,provider:"Pollinations"};}
+  }catch(e){}
+  // 3. Pollinations legacy endpoints
+  try{
+    const res=await tryFetch("https://text.pollinations.ai/openai",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({messages:[{role:"user",content:prompt}],model:"openai"})},25000);
+    if(res.ok){
+      let txt="";try{const d=await res.clone().json();txt=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||"";}catch(e){txt=await res.text();}
+      txt=(txt||"").trim();if(txt)return{text:txt,provider:"Pollinations"};}
+  }catch(e){}
+  try{
+    const res=await tryFetch("https://text.pollinations.ai/"+encodeURIComponent(prompt.slice(0,1500)),{},25000);
+    if(res.ok){const txt=(await res.text()).trim();if(txt)return{text:txt,provider:"Pollinations"};}
+  }catch(e){}
+  throw new Error("no free provider reachable");
 }
 
 let busy=false;
@@ -566,16 +668,48 @@ async function runQuery(){
   const prompt=buildPrompt(q,r.hits);
   $("#promptPreview").textContent=prompt;
   await animatePipe(5);
-  const key=LS.get("smriti.key","");
-  let ans,real=false;
-  if(key){try{ans=await realAnswer(prompt);real=true;}catch(e){ans="Live call failed ("+e.message+").\n\nFalling back to simulation:\n\n"+simulatedAnswer(q,r.hits);}}
-  else ans=simulatedAnswer(q,r.hits);
+  const wantAI=$("#aiMode").value==="free";
+  let ans,provider=null;
+  if(wantAI){
+    $("#ansBox").textContent="Asking the free AI over your retrieved context…";
+    try{const r2=await freeAnswer(prompt);ans=r2.text;provider=r2.provider;}
+    catch(e){ans=simulatedAnswer(q,r.hits)+"\n\n(No free AI provider was reachable just now — showed the on-device simulated answer instead. Try again in a moment.)";}
+  }else ans=simulatedAnswer(q,r.hits);
   $("#ansBox").textContent=ans;
-  $("#ansChip").className="modechip "+(real?"real":"sim");
-  $("#ansChip").textContent=real?"Real · "+LS.get("smriti.model","claude-sonnet-4-6"):"Simulated";
+  $("#ansChip").className="modechip "+(provider?"real":"sim");
+  $("#ansChip").textContent=provider?"Live · "+provider+" (free, keyless)":"Simulated · on-device";
   $("#srcRow").innerHTML=r.hits.map((h,i)=>`<span class="srcchip">Source ${i+1} · ${esc(h.c.doc)}</span>`).join("");
   await animatePipe(6);
+  lastQ=q;$("#genBtn").disabled=false;
+  lastTrace={
+    _readme:"Anatomy of one RAG query in SMṚTI. Follow it top to bottom: the query became a vector, every chunk got a cosine similarity score, the top-k were stitched into augmented_prompt, and the model answered from that context only.",
+    timestamp:new Date().toISOString(),query:q,top_k:k,
+    query_vector:vecToObj(r.qe.vec),
+    all_similarities:chunks.map((c,i)=>({chunk:c.id,doc:c.doc,score:+(cosine(r.qe,c)).toFixed(4)})).sort((a,b)=>b.score-a.score),
+    retrieved:r.hits.map((h,i)=>({source:i+1,chunk:h.c.id,doc:h.c.doc,score:+h.score.toFixed(4),text:h.c.text})),
+    augmented_prompt:prompt,
+    answer_mode:provider?("live · "+provider):"simulated on-device",
+    answer:ans};
+  $("#dlTraceBtn").disabled=false;
+  $("#genBox").style.display="none";$("#genBox").textContent="";
+  $("#genChip").className="modechip sim";$("#genChip").textContent="Ungrounded";
+  if(r.hits.every(h=>h.score<0.02))toast("Low retrieval match — this may not be in your documents. Try 'Ask without my documents' below.");
   busy=false;$("#askBtn").disabled=false;
+}
+let lastQ="";
+async function runGeneral(){
+  if(!lastQ)return;
+  const btn=$("#genBtn");btn.disabled=true;
+  const box=$("#genBox");box.style.display="block";
+  box.textContent="Asking the free community AI with no document context…";
+  try{
+    const r2=await freeAnswer("Answer this question briefly using your general knowledge. If it seems to be about a specific company's internal policies or products that you cannot know, say so honestly. Question: "+lastQ);
+    box.textContent=r2.text;
+    $("#genChip").className="modechip real";$("#genChip").textContent="Live · "+r2.provider+" · general knowledge";
+  }catch(e){
+    box.textContent="The free community AI is unreachable right now, and general answers can't be simulated on-device — the offline composer can only stitch text from your documents, which is precisely the difference between grounded and ungrounded answering. Try again when online.";
+  }
+  btn.disabled=false;
 }
 
 /* ============ fine-tuning content ============ */
@@ -589,35 +723,142 @@ const FT_TYPES=[
 function renderFT(){$("#ftTypes").innerHTML=FT_TYPES.map((t,i)=>`<details class="ft"${i===0?" open":""}>
   <summary><span class="n">${i+1}</span>${t[0]}</summary><div class="body"><p>${t[1]}</p></div></details>`).join("");}
 
-const SAMPLE_JSONL=[
- {messages:[{role:"system",content:"You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records."},{role:"user",content:"What's the battery warranty on the S1?"},{role:"assistant",content:"The S1 battery is covered for 8 years or 80,000 km (whichever comes first), with at least 70% capacity retention guaranteed."}]},
- {messages:[{role:"system",content:"You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records."},{role:"user",content:"Can I open the battery pack to check a loose wire?"},{role:"assistant",content:"No — opening the battery pack yourself voids the warranty. Please book a doorstep service in the Aarambh app; a certified technician will inspect it."}]},
- {messages:[{role:"system",content:"You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records."},{role:"user",content:"Does the S1 support wireless CarPlay?"},{role:"assistant",content:"I don't have that in our records. The spec sheet lists a 7-inch touchscreen with navigation and OTA updates, but no CarPlay support is documented."}]}
-].map(o=>JSON.stringify(o)).join("\n");
-function loadSample(){$("#jsonlBox").value=SAMPLE_JSONL;}
+const SYS="You are Aarambh Motors' support assistant. Answer only from company policy. If unsure, say you don't have it in records.";
+const DATASETS={
+ sft:{name:"aarambh-support-sft",lines:[
+  {messages:[{role:"system",content:SYS},{role:"user",content:"What's the battery warranty on the S1?"},{role:"assistant",content:"The S1 battery is covered for 8 years or 80,000 km (whichever comes first), with at least 70% capacity retention guaranteed."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"How fast does the S1 charge at a FastGrid station?"},{role:"assistant",content:"At an Aarambh FastGrid station the S1 charges from 0 to 80% in about 55 minutes. On the standard home charger it takes roughly 3.5 hours."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"Can I open the battery pack to check a loose wire?"},{role:"assistant",content:"No — opening the battery pack yourself voids the warranty. Please book a doorstep service in the Aarambh app; a certified technician will inspect it."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"How many earned leave days do employees get?"},{role:"assistant",content:"Employees accrue 1.5 days of earned leave per month — 18 days per year — and can carry forward up to a maximum of 30 days."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"Does the S1 support wireless CarPlay?"},{role:"assistant",content:"I don't have that in our records. The spec sheet lists a 7-inch touchscreen with navigation and OTA updates, but no CarPlay support is documented."}]}]},
+ ground:{name:"aarambh-grounding-refusals",lines:[
+  {messages:[{role:"system",content:SYS},{role:"user",content:"What discount can you give me on the S1 this Diwali?"},{role:"assistant",content:"I don't have any discount or pricing-offer information in our records. Please check the official Aarambh website or your nearest dealership for current festive offers."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"My friend said the battery lasts 15 years. True?"},{role:"assistant",content:"That's not what our records say. The documented warranty is 8 years or 80,000 km with 70% capacity retention — I can't confirm claims beyond that."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"Is the upcoming S2 launching in March?"},{role:"assistant",content:"I don't have any information about an S2 or future launch dates in our records, so I can't confirm that."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"What's the IDC range of the S1?"},{role:"assistant",content:"The S1 has a certified IDC range of 142 km on its 3.2 kWh LFP battery pack."}]},
+  {messages:[{role:"system",content:SYS},{role:"user",content:"Just guess the service cost if you don't know."},{role:"assistant",content:"I'd rather not guess — service pricing isn't in our records. You can get an exact quote when booking through the Aarambh app."}]}]},
+ dpo:{name:"aarambh-preferences-dpo",lines:[
+  {prompt:"Customer: My scooter got wet in the rain and now the screen flickers. What should I do?",chosen:"I'm sorry about that. The S1 is IP67 rated, so normal rain is covered — please book a doorstep service in the Aarambh app and a technician will check the display under warranty.",rejected:"Water damage is your fault. Warranty void. Nothing we can do."},
+  {prompt:"Customer: Is the 55-minute fast charge guaranteed in summer heat?",chosen:"Fast-charge time can vary slightly with temperature and battery state. The documented figure is 0–80% in about 55 minutes at a FastGrid station under standard conditions.",rejected:"Yes, always exactly 55 minutes, guaranteed in every condition."},
+  {prompt:"Customer: Can I skip the 6-month service if the scooter feels fine?",chosen:"I'd recommend keeping the schedule — service every 6 months or 5,000 km keeps the warranty intact and catches issues early. You can book a convenient doorstep slot in the app.",rejected:"Sure, skip it, services are just a money-making thing."}]},
+ cpt:{name:"aarambh-domain-corpus",lines:[
+  {text:"LFP (lithium iron phosphate) chemistry trades some energy density for thermal stability and long cycle life, which is why the Aarambh S1 pairs a 3.2 kWh LFP pack with an 8-year warranty commitment."},
+  {text:"IP67 ingress protection means the enclosure is dust-tight and withstands temporary immersion up to 1 metre for 30 minutes; riding through monsoon waterlogging within these limits is covered."},
+  {text:"IDC (Indian Driving Cycle) range figures are measured under standardised test conditions; real-world range varies with rider weight, terrain, speed, and use of Sprint mode."},
+  {text:"Hill-hold assist prevents rollback by holding brake pressure for a short interval when the rider releases the brake on an incline, a common requirement on flyover starts in Indian cities."}]}
+};
+function loadSample(){const d=DATASETS[$("#dsSel").value];$("#jsonlBox").value=d.lines.map(o=>JSON.stringify(o)).join("\n");$("#valOut").innerHTML="";}
+function detectFormat(objs){
+  if(objs.every(o=>Array.isArray(o.messages)))return "sft";
+  if(objs.every(o=>o.prompt&&o.chosen&&o.rejected))return "dpo";
+  if(objs.every(o=>typeof o.text==="string"))return "cpt";
+  return "mixed";
+}
 function validateJSONL(){
   const lines=$("#jsonlBox").value.split("\n").filter(l=>l.trim());
-  const errs=[];let sys=0,refusal=0;const seen=new Set();
-  lines.forEach((l,i)=>{
-    let o;try{o=JSON.parse(l);}catch(e){errs.push("Line "+(i+1)+": not valid JSON");return;}
-    if(!Array.isArray(o.messages)){errs.push("Line "+(i+1)+": missing messages[]");return;}
-    const roles=o.messages.map(m=>m.role);
-    if(!roles.includes("user")||!roles.includes("assistant"))errs.push("Line "+(i+1)+": needs user + assistant turns");
-    if(roles[0]==="system")sys++;
-    const u=(o.messages.find(m=>m.role==="user")||{}).content||"";
-    if(seen.has(u))errs.push("Line "+(i+1)+": duplicate user prompt (dedupe!)");seen.add(u);
-    const a=(o.messages.find(m=>m.role==="assistant")||{}).content||"";
-    if(/don't have|not documented|no record/i.test(a))refusal++;
-    if(a.length<20)errs.push("Line "+(i+1)+": assistant answer suspiciously short");
-  });
   const out=$("#valOut");
   if(!lines.length){out.innerHTML='<div class="vres bad">Dataset is empty.</div>';return;}
-  let html="";
+  const objs=[];const errs=[];
+  lines.forEach((l,i)=>{try{objs.push(JSON.parse(l));}catch(e){errs.push("Line "+(i+1)+": not valid JSON");objs.push(null);}});
+  const valid=objs.filter(Boolean);
+  const fmt=detectFormat(valid.length?valid:[{}]);
+  let html="",extra=[];
+  if(fmt==="mixed"&&valid.length)errs.push("Mixed or unknown formats — keep one format per dataset file (messages / prompt-chosen-rejected / text).");
+  if(fmt==="sft"){
+    let sys=0,refusal=0;const seen=new Set();
+    valid.forEach((o,i)=>{const roles=o.messages.map(m=>m.role);
+      if(!roles.includes("user")||!roles.includes("assistant"))errs.push("Line "+(i+1)+": needs user + assistant turns");
+      if(roles[0]==="system")sys++;
+      const u=(o.messages.find(m=>m.role==="user")||{}).content||"";
+      if(seen.has(u))errs.push("Line "+(i+1)+": duplicate user prompt (dedupe!)");seen.add(u);
+      const a=(o.messages.find(m=>m.role==="assistant")||{}).content||"";
+      if(/don't have|not documented|no record|can't confirm|rather not guess/i.test(a))refusal++;
+      if(a.length<20)errs.push("Line "+(i+1)+": assistant answer suspiciously short");});
+    extra.push([refusal>0,'Contains '+refusal+' grounded-refusal example(s) — teaches the model to admit "not in our records" instead of hallucinating.','No refusal examples found. Add a few "I don\'t have that in our records" answers to keep the tuned model honest.']);
+    extra.push([sys===valid.length,'Consistent system prompt across all examples.',(valid.length-sys)+' example(s) missing the system message — inconsistent framing weakens tuning.']);
+  }else if(fmt==="dpo"){
+    valid.forEach((o,i)=>{
+      if(o.chosen===o.rejected)errs.push("Line "+(i+1)+": chosen and rejected are identical — no preference signal");
+      if((o.chosen||"").length<20)errs.push("Line "+(i+1)+": chosen answer suspiciously short");});
+    extra.push([true,'DPO format detected: prompt / chosen / rejected. Each line teaches a comparison, not a gold answer — used for preference tuning (DPO, RLHF reward data).','']);
+  }else if(fmt==="cpt"){
+    const short=valid.filter(o=>o.text.length<80).length;
+    extra.push([short===0,'Raw-text corpus for domain-adaptive continued pretraining. All passages are substantive (≥80 chars).',short+' passage(s) are very short — tiny fragments add noise, merge them into fuller passages.']);
+  }
   if(errs.length)html+='<div class="vres bad">✗ '+errs.length+' issue(s):<br>'+errs.map(esc).join("<br>")+'</div>';
-  else html+='<div class="vres good">✓ '+lines.length+' examples parsed cleanly — every line has valid JSON, user + assistant turns, and no duplicate prompts.</div>';
-  html+='<div class="vres '+(refusal>0?"good":"bad")+'">'+(refusal>0?'✓ Contains '+refusal+' grounded-refusal example(s) — teaches the model to say "not in our records" instead of hallucinating.':'✗ No refusal examples found. Add a few "I don\'t have that in our records" answers to keep the tuned model honest.')+'</div>';
-  html+='<div class="vres '+(sys===lines.length?"good":"bad")+'">'+(sys===lines.length?'✓ Consistent system prompt across all examples.':'✗ '+(lines.length-sys)+' example(s) missing the system message — inconsistent framing weakens tuning.')+'</div>';
+  else html+='<div class="vres good">✓ '+valid.length+' examples parsed cleanly in <b>'+fmt.toUpperCase()+'</b> format.</div>';
+  extra.forEach(([ok,g,b])=>{html+='<div class="vres '+(ok?"good":"bad")+'">'+(ok?'✓ '+g:'✗ '+b)+'</div>';});
   out.innerHTML=html;
+}
+function downloadJSONL(){
+  const d=DATASETS[$("#dsSel").value];
+  const blob=new Blob([$("#jsonlBox").value],{type:"application/jsonl"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=d.name+".jsonl";
+  document.body.appendChild(a);a.click();a.remove();toast("Downloaded "+d.name+".jsonl");
+}
+
+/* ============ downloadable internals ============ */
+function downloadJSON(name,obj){
+  const blob=new Blob([JSON.stringify(obj,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();a.remove();toast("Downloaded "+name);
+}
+const vecToObj=(vec,dp)=>{const o={};[...vec.entries()].sort((a,b)=>b[1]-a[1]).forEach(([w,v])=>o[w]=+v.toFixed(dp||4));return o;};
+function exportVectorStore(){
+  downloadJSON("vector_store.json",{
+    _readme:"This is SMṚTI's real vector store: your documents after chunking + embedding. Real systems store dense vectors (1024–3072 floats) from an embedding model; SMṚTI uses honest on-device TF-IDF (term → weight), so you can actually read the 'meaning as numbers'. Cosine similarity between a query vector and chunk vectors = retrieval.",
+    generated:new Date().toISOString(),
+    embedding_type:"tf-idf (on-device)",chunk_size_chars:chunkSize,
+    stats:{documents:docs.length,chunks:chunks.length,vocabulary_terms:idf?idf.size:0},
+    documents:docs.map(d=>({id:d.id,title:d.title,chars:d.text.length})),
+    idf_sample:vecToObj(new Map([...idf.entries()].slice(0,25)),3),
+    chunks:chunks.map(c=>({id:c.id,metadata:{doc:c.doc},text:c.text,embedding:vecToObj(c.vec),norm:+c.norm.toFixed(4)}))
+  });
+}
+let lastTrace=null;
+function exportTrace(){if(lastTrace)downloadJSON("rag_trace.json",lastTrace);}
+
+/* ============ LoRA weight demo (real math, toy scale) ============ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+const LORA={n:32,r:2};
+function buildLora(){
+  const {n,r}=LORA,rnd=mulberry32(20260728),g=()=> (rnd()+rnd()+rnd()-1.5)*0.8; // ~gaussian
+  const W=Array.from({length:n},()=>Array.from({length:n},g));
+  const A=Array.from({length:n},()=>Array.from({length:r},g));
+  const B=Array.from({length:r},()=>Array.from({length:n},g));
+  const scale=0.35; // lora alpha/r scaling
+  const D=Array.from({length:n},(_,i)=>Array.from({length:n},(_,j)=>{let s=0;for(let k=0;k<r;k++)s+=A[i][k]*B[k][j];return s*scale;}));
+  const M=W.map((row,i)=>row.map((v,j)=>v+D[i][j]));
+  return {W,A,B,D,M};
+}
+function drawHeat(id,Mx){
+  const cv=$("#"+id);if(!cv)return;const n=Mx.length,g=cv.getContext("2d");
+  const img=g.createImageData(n,n);
+  let mx=0;Mx.forEach(r=>r.forEach(v=>mx=Math.max(mx,Math.abs(v))));mx=mx||1;
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    const v=Mx[i][j]/mx,k=(i*n+j)*4;
+    if(v>=0){img.data[k]=Math.round(80+175*v);img.data[k+1]=Math.round(60+118*v);img.data[k+2]=Math.round(40+22*v);} // → turmeric
+    else{img.data[k]=Math.round(30+113*(-v));img.data[k+1]=Math.round(40+127*(-v));img.data[k+2]=Math.round(70+185*(-v));} // → periwinkle
+    img.data[k+3]=255;
+  }
+  const off=document.createElement("canvas");off.width=n;off.height=n;off.getContext("2d").putImageData(img,0,0);
+  g.imageSmoothingEnabled=false;g.clearRect(0,0,cv.width,cv.height);g.drawImage(off,0,0,cv.width,cv.height);
+}
+let loraDemo=null;
+function renderLora(){
+  loraDemo=buildLora();
+  drawHeat("wBase",loraDemo.W);drawHeat("wDelta",loraDemo.D);drawHeat("wMerged",loraDemo.M);
+}
+function exportWeights(){
+  if(!loraDemo)return;const rd=M=>M.map(r=>r.map(v=>+v.toFixed(3)));
+  const {n,r}=LORA;
+  downloadJSON("finetune_weights_demo.json",{
+    _readme:"Illustrative LoRA fine-tuning demo — toy numbers, genuine arithmetic. W_base is a frozen 32x32 weight layer (1,024 params). Fine-tuning with LoRA trains only lora_A (32x2) and lora_B (2x32) = 128 params (12.5%). delta_W = A·B·scale is added to W_base to get W_merged: the 'tuned' layer. On a real model the same structure repeats across billions of weights, which is why adapters are megabytes while models are gigabytes. Compare delta_W with W_base: the update is low-rank (stripey), touching behaviour without erasing the base.",
+    base_shape:[n,n],lora_rank:r,scale:0.35,
+    total_params:n*n,trained_params:2*n*r,trained_fraction:(2*n*r)/(n*n),
+    W_base:rd(loraDemo.W),lora_A:rd(loraDemo.A),lora_B:rd(loraDemo.B),
+    delta_W:rd(loraDemo.D),W_merged:rd(loraDemo.M)
+  });
 }
 
 /* ============ future cards ============ */
@@ -639,30 +880,104 @@ function switchTab(t){$$(".tab").forEach(b=>b.setAttribute("aria-selected",b.dat
   window.scrollTo({top:0});}
 $$(".tab").forEach(b=>b.onclick=()=>switchTab(b.dataset.t));
 
-/* ============ settings ============ */
-const setModal=$("#setModal");
-function refreshMode(){const k=LS.get("smriti.key","");
-  $("#modeChip").className="modechip "+(k?"real":"sim");
-  $("#modeChip").textContent=k?"Live: Claude":"Simulated";
-  $("#ansMode").textContent=k?"Answer: real Claude ("+LS.get("smriti.model","claude-sonnet-4-6")+")":"Answer: simulated (add API key for real Claude)";}
-$("#settingsBtn").onclick=()=>{$("#apiKey").value=LS.get("smriti.key","");$("#modelSel").value=LS.get("smriti.model","claude-sonnet-4-6");setModal.classList.add("open");};
-$("#closeSetBtn").onclick=()=>setModal.classList.remove("open");
-setModal.onclick=e=>{if(e.target===setModal)setModal.classList.remove("open");};
-$("#saveKeyBtn").onclick=()=>{LS.set("smriti.key",$("#apiKey").value.trim());LS.set("smriti.model",$("#modelSel").value);refreshMode();setModal.classList.remove("open");toast("Saved — answers now use live Claude");};
-$("#clearKeyBtn").onclick=()=>{LS.set("smriti.key","");refreshMode();toast("Key cleared — back to simulated mode");};
+/* ============ mode ============ */
+function refreshMode(){/* free keyless build — nothing to configure */}
 
 /* ============ build tab events ============ */
 $("#addDocBtn").onclick=()=>{const t=$("#ndTitle").value.trim(),x=$("#ndText").value.trim();
-  if(!t||!x){toast("Add a title and some text");return;}
+  if(!t||!x){toast("Add a title and some text (or Upload a file to fill this form)");return;}
   docs.push({id:"u"+Date.now().toString(36),title:t,text:x});
-  $("#ndTitle").value="";$("#ndText").value="";persistAndRebuild();toast("Document added & indexed");};
+  $("#ndTitle").value="";$("#ndText").value="";persistAndRebuild();
+  toast("“"+t.slice(0,40)+"” added & indexed");
+  fillNextPending();};
 $("#resetKbBtn").onclick=()=>{docs=SAMPLE_DOCS.map(d=>({...d}));persistAndRebuild();toast("Sample knowledge base restored");};
+
+/* ---------- file upload ingestion ---------- */
+const MAX_DOC_CHARS=40000;
+function loadScript(src){return new Promise((res,rej)=>{
+  if(document.querySelector('script[src="'+src+'"]'))return res();
+  const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("Couldn't load parser — check internet and retry"));document.head.appendChild(s);});}
+let pdfWorkerReady=false;
+async function extractPDF(file){
+  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+  if(!pdfWorkerReady){
+    // Safety net: load the worker as a normal script too — it registers globalThis.pdfjsWorker,
+    // so if real Worker creation is blocked (sandboxed previews), pdf.js parses on the main thread.
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js");
+    // Fast path for real browsers: same-origin blob worker (off the main thread)
+    try{
+      const wtxt=await(await fetch("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js")).text();
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([wtxt],{type:"text/javascript"}));
+    }catch(e){
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+    pdfWorkerReady=true;
+  }
+  const buf=await file.arrayBuffer();
+  const pdf=await window.pdfjsLib.getDocument({data:buf,isEvalSupported:false}).promise;
+  let out=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);const tc=await page.getTextContent();
+    out.push(tc.items.map(it=>it.str).join(" "));
+    if(out.join(" ").length>MAX_DOC_CHARS)break;
+  }
+  return out.join("\n");
+}
+async function extractDOCX(file){
+  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js");
+  const buf=await file.arrayBuffer();
+  const r=await window.mammoth.extractRawText({arrayBuffer:buf});
+  return r.value||"";
+}
+function stripHTML(t){const d=document.createElement("div");d.innerHTML=t;return d.textContent||"";}
+async function fileToText(file){
+  const ext=(file.name.split(".").pop()||"").toLowerCase();
+  if(ext==="pdf")return extractPDF(file);
+  if(ext==="docx")return extractDOCX(file);
+  const raw=await file.text();
+  if(ext==="html"||ext==="htm")return stripHTML(raw);
+  if(ext==="json"){try{return JSON.stringify(JSON.parse(raw),null,1).replace(/[{}\[\]",]/g," ");}catch(e){return raw;}}
+  return raw; // txt, md, csv
+}
+/* ---------- upload → review → Add document flow ---------- */
+let pendingQueue=[];
+function fillNextPending(){
+  const st=$("#upStatus");
+  if(!pendingQueue.length){st.textContent="";return;}
+  const p=pendingQueue.shift();
+  $("#ndTitle").value=p.title;$("#ndText").value=p.text;
+  st.innerHTML='📄 Extracted <b>'+esc(p.title)+'</b> ('+p.text.length.toLocaleString()+' chars) into the form — review or edit it, then tap <b>Add document</b>.'+(pendingQueue.length?' '+pendingQueue.length+' more file(s) queued after this one.':'');
+  $("#ndText").scrollTop=0;
+}
+async function handleFiles(files){
+  const st=$("#upStatus");let failed=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    st.textContent="Reading "+f.name+" ("+(i+1)+"/"+files.length+")…";
+    try{
+      let text=(await fileToText(f)).replace(/\s+\n/g,"\n").replace(/[ \t]+/g," ").trim();
+      if(!text){failed.push(f.name+": no extractable text (scanned/image PDFs need OCR first)");continue;}
+      if(text.length>MAX_DOC_CHARS)text=text.slice(0,MAX_DOC_CHARS);
+      pendingQueue.push({title:f.name.replace(/\.[^.]+$/,""),text});
+    }catch(e){failed.push(f.name+": "+(e.message||"couldn't parse"));}
+  }
+  fillNextPending();
+  if(failed.length)st.innerHTML=(st.innerHTML?st.innerHTML+"<br>":"")+'<span style="color:var(--bad)">✗ '+failed.map(esc).join("<br>✗ ")+"</span>";
+}
+$("#uploadBtn").onclick=()=>$("#fileInput").click();
+$("#fileInput").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)handleFiles(fs);};
 $("#chunkSize").oninput=e=>{chunkSize=+e.target.value;$("#csLabel").textContent=chunkSize;};
 $("#chunkSize").onchange=()=>{LS.set("smriti.chunkSize",chunkSize);rebuild();toast("Re-chunked & re-indexed");};
 $("#askBtn").onclick=runQuery;
+$("#genBtn").onclick=runGeneral;
+$("#dlStoreBtn").onclick=exportVectorStore;
+$("#dlTraceBtn").onclick=exportTrace;
+$("#dlWeightsBtn").onclick=exportWeights;
 $("#qInput").addEventListener("keydown",e=>{if(e.key==="Enter")runQuery();});
 $("#valBtn").onclick=validateJSONL;
-$("#sampleBtn").onclick=()=>{loadSample();$("#valOut").innerHTML="";};
+$("#sampleBtn").onclick=loadSample;
+$("#dsSel").onchange=loadSample;
+$("#dlBtn").onclick=downloadJSONL;
 window.addEventListener("resize",()=>{if(!$("#s-store").hidden)drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);});
 
 /* ============ logo + PWA ============ */
@@ -690,7 +1005,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v1";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v9";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
@@ -698,7 +1013,7 @@ function setupPWA(){
 }
 
 /* ============ init ============ */
-drawLogo();renderPipe();renderChips();renderFT();loadSample();renderFuture();refreshMode();
+drawLogo();renderPipe();renderChips();renderFT();loadSample();renderFuture();refreshMode();renderLora();
 $("#chunkSize").value=chunkSize;$("#csLabel").textContent=chunkSize;
 rebuild();setupPWA();
 </script>
