@@ -136,6 +136,13 @@ td{color:var(--muted)} td b{color:var(--ink)}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line);color:var(--ink);border-radius:12px;padding:10px 16px;font-size:13.5px;z-index:70;opacity:0;pointer-events:none;transition:opacity .25s}
 .toast.show{opacity:1}
 footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);font-size:12px;text-align:center}
+/* journey footer at the bottom of each section */
+.stepnav{margin-top:22px;border-top:1px solid var(--line);padding-top:14px}
+.stepnav .why{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.stepnav .row{justify-content:space-between}
+.stepnav button{max-width:48%}
+.stepnav .nextbtn{background:var(--vec);color:#0F1424;border:0;border-radius:11px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer;text-align:right;margin-left:auto}
+.stepnav .prevbtn{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:11px;padding:11px 16px;font-size:13px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -243,11 +250,8 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
   </div>
   <div class="card" style="margin-top:14px">
     <h3>What a chunk looks like inside the store</h3>
-    <p>Real systems use dense embeddings (e.g. 1,024–3,072 dimensions from an embedding model) stored in a vector database — <b>Pinecone, Weaviate, Qdrant, Milvus, pgvector, Chroma</b>. SMṚTI computes honest on-device <b>TF-IDF</b> vectors so the demo works fully offline. Tap any chunk in Step 1 to inspect it; a truncated vector preview is shown below each retrieved chunk in Step 3.</p>
-    <pre class="code mono">{ <span class="k">"id"</span>: <span class="s">"leave-policy#3"</span>,
-  <span class="k">"text"</span>: <span class="s">"Employees accrue 1.5 days of earned leave per month…"</span>,
-  <span class="k">"embedding"</span>: [0.031, -0.114, 0.267, …],   <span class="c">// the "meaning" as numbers</span>
-  <span class="k">"metadata"</span>: { <span class="k">"doc"</span>: <span class="s">"HR Leave Policy"</span>, <span class="k">"version"</span>: <span class="s">"2026-07"</span> } }</pre>
+    <p>Real systems use dense embeddings (e.g. 1,024–3,072 dimensions from an embedding model) stored in a vector database — <b>Pinecone, Weaviate, Qdrant, Milvus, pgvector, Chroma</b>. SMṚTI computes honest on-device <b>TF-IDF</b> vectors so the demo works fully offline. The chunk below is <b>live from your active house</b> — it changes when you switch houses or edit documents.</p>
+    <pre class="code mono" id="storeSample">(Add documents to see a live chunk here.)</pre>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="dlStoreBtn">⬇ Download vector_store.json</button>
       <span class="tag">Your real store: every chunk + its actual TF-IDF vector + metadata</span>
@@ -336,15 +340,20 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
   <div class="grid2">
     <div class="card">
       <h3>Sample fine-tuning datasets — pick, edit, validate, download</h3>
-      <p>Four ready-made sample datasets in real training formats. Load one, edit it, run the validator, then <b>download the .jsonl</b> to use as a template for your own company data.</p>
+      <p>Five ready-made sample datasets in real formats — including a <b>golden eval set</b> you can actually run against the live RAG. Load one, edit it, validate, then <b>download the .jsonl</b> as a template for your own data.</p>
       <label for="dsSel">Dataset</label>
       <select id="dsSel">
         <option value="sft" selected>1 · SFT — Support Assistant (chat messages)</option>
         <option value="ground">2 · Grounding & Refusal set (anti-hallucination)</option>
         <option value="dpo">3 · Preference pairs — DPO (chosen vs rejected)</option>
         <option value="cpt">4 · Continued pretraining (raw domain text)</option>
+        <option value="golden">5 · ✨ Golden eval set — scoring, not training</option>
         <option value="mine">★ My dataset — for the active RAG house</option>
       </select>
+      <div class="row" id="goldenTools" style="margin-top:8px;display:none">
+        <button class="ghost" id="runEvalBtn">▶ Run eval against active house's RAG</button>
+        <span class="tag">Frozen questions + gold answers = your regression test</span>
+      </div>
       <div class="row" id="mineTools" style="margin-top:8px;display:none">
         <button class="ghost" id="autoDraftBtn">✍️ Auto-draft from my documents</button>
         <button class="ghost" id="aiDraftBtn">✨ Draft 5 with free AI</button>
@@ -551,10 +560,23 @@ let chunks=[],vocab=null,idf=null,proj=null,lastQuery=null;
 const DOC_COLORS=["#8FA7FF","#F0B23E","#4FD8A6","#F26D6D","#C79BFF","#5FD0E8","#F2A0C8"];
 
 /* ============ chunking ============ */
+/* strip markdown noise so chunks are clean prose; bullet lines become sentences */
+function cleanText(t){
+  return t
+    .replace(/```[\s\S]*?```/g," ")
+    .replace(/^#{1,6}\s*/gm,"")
+    .replace(/\*\*([^*]+)\*\*/g,"$1").replace(/\*([^*\n]+)\*/g,"$1").replace(/__/g,"").replace(/`/g,"")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g,"$1")
+    .replace(/^\s*(?:[>\-*+•]\s*)+/gm,"")
+    .replace(/^\s*-{3,}\s*$/gm," ")
+    .replace(/\|/g," ")
+    .replace(/([^.!?:\n])\n(?=\S)/g,"$1. ")
+    .replace(/\n+/g," ").replace(/\s{2,}/g," ").trim();
+}
 function chunkDocs(){
   chunks=[];
   docs.forEach((d,di)=>{
-    const sents=splitSents(d.text);
+    const sents=splitSents(cleanText(d.text));
     let buf="",idx=0,prevTail="";
     const flush=()=>{if(buf.trim()){chunks.push({id:d.id+"#"+idx,doc:d.title,di,text:(prevTail?prevTail+" ":"")+buf.trim()});prevTail=buf.trim().split(" ").slice(-8).join(" ");idx++;buf="";}};
     for(const s of sents){ if((buf+s).length>chunkSize) flush(); buf+=s; }
@@ -564,7 +586,13 @@ function chunkDocs(){
 
 /* ============ TF-IDF embeddings ============ */
 const STOP=new Set("a an the is are was were be been to of in on at for with and or as by from this that these those it its can will must may not no per each any all only if than then when what how do does".split(" "));
-const tok=t=>t.toLowerCase().replace(/[^a-z0-9\s%.-]/g," ").split(/\s+/).filter(w=>(w.length>1||/^\d$/.test(w))&&!STOP.has(w));
+const tok=t=>t.toLowerCase().replace(/[^a-z0-9\s%.-]/g," ").split(/\s+/)
+  .map(w=>w.replace(/%$/,""))
+  .map(w=>{if(w.length<=3)return w;
+    if(/(?:[sxz]|[cs]h)es$/.test(w))return w.slice(0,-2);   // boxes→box, dishes→dish
+    if(/[^su]s$/.test(w))return w.slice(0,-1);              // charges→charge, days→day (not class, bonus)
+    return w;})
+  .filter(w=>(w.length>1||/^\d$/.test(w))&&!STOP.has(w));
 function buildIndex(){
   vocab=new Map();const dfs=new Map();
   chunks.forEach(c=>{c.toks=tok(c.text);const seen=new Set();
@@ -636,8 +664,18 @@ function renderChunks(){
   $("#chunkList").innerHTML=chunks.map(c=>`<div class="chunk" style="--dc:${DOC_COLORS[c.di%DOC_COLORS.length]}">
     <div class="cid">${esc(c.id)} · ${esc(c.doc)}</div>${esc(c.text)}</div>`).join("");
 }
+function renderStoreSample(){
+  const el=$("#storeSample");if(!el)return;
+  const c=chunks[0];
+  if(!c){el.textContent="(This house has no documents yet — add some in Step 1 to see a live chunk here.)";return;}
+  const emb=[...c.vec.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([w,v])=>`<span class="s">"${esc(w)}"</span>: ${v.toFixed(3)}`).join(", ");
+  el.innerHTML=`{ <span class="k">"id"</span>: <span class="s">"${esc(c.id)}"</span>,
+  <span class="k">"text"</span>: <span class="s">"${esc(c.text.slice(0,90))}…"</span>,
+  <span class="k">"embedding"</span>: { ${emb}, … },   <span class="c">// the "meaning" as numbers</span>
+  <span class="k">"metadata"</span>: { <span class="k">"doc"</span>: <span class="s">"${esc(c.doc)}"</span>, <span class="k">"house"</span>: <span class="s">"${esc(house.name)}"</span> } }`;
+}
 function persistAndRebuild(){if(!saveHouses())toast("Storage full — this house works this session but won't survive a reload. Remove some documents.");rebuild();}
-function rebuild(){chunkDocs();buildIndex();renderDocs();renderChunks();drawLegend();renderChips();drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);}
+function rebuild(){chunkDocs();buildIndex();renderDocs();renderChunks();drawLegend();renderChips();renderStoreSample();drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);}
 
 /* ============ pipeline ============ */
 const STAGES=[
@@ -672,13 +710,30 @@ function buildPrompt(q,hits){
   return sysLine+` Answer ONLY from the context below. If the answer is not in the context, say "I don't have that in our records." Cite sources as [Source N].\n\n=== CONTEXT ===\n${ctx}\n\n=== QUESTION ===\n${q}`;
 }
 function simulatedAnswer(q,hits){
+  // confidence gate: if even the best chunk barely matches, refuse rather than stitch noise
+  if(!hits.length||hits[0].score<0.07)
+    return "I don't have that in our records. (Top similarity was only "+((hits[0]?hits[0].score:0)*100).toFixed(1)+"% — below the confidence threshold, so refusing beats guessing. This is the same gate production RAG systems use.)";
   const qt=new Set(tok(q));
-  const best=[];
+  const best=[];const seen=new Set();
   hits.forEach((h,i)=>{splitSents(h.c.text).forEach(s=>{
-    const st=tok(s);const ov=st.filter(w=>qt.has(w)).length;
-    if(ov>0)best.push({s:s.trim(),ov,i});});});
+    s=s.trim();
+    if(s.length<30)return;                                  // skip fragments
+    const key=s.toLowerCase().slice(0,60);
+    if(seen.has(key))return;seen.add(key);                  // dedupe overlap-repeated sentences
+    const st=tok(s);
+    // IDF-weighted overlap: rare, distinctive query terms count more than ubiquitous ones
+    const ov=[...new Set(st.filter(w=>qt.has(w)))].reduce((sum,w)=>sum+(idf.get(w)||1),0);
+    if(ov>0)best.push({s,ov:ov+Math.min(s.length,160)/800,i}); // tiny bonus for fuller sentences
+  });});
   best.sort((a,b)=>b.ov-a.ov);
   if(!best.length)return "I don't have that in our records. (No retrieved sentence overlapped your question — try rephrasing, or add a document that covers it.)";
+  // coverage gate: if the best sentence touches under a third of the question's terms, it's a
+  // distractor match (e.g. "Diwali" matching a holiday-policy line for a discount question) — refuse.
+  const qTerms=[...qt];
+  const topToks=new Set(tok(best[0].s));
+  const coverage=qTerms.filter(w=>topToks.has(w)).length/(qTerms.length||1);
+  if(coverage<0.34)
+    return "I don't have that in our records. (The closest match covered only "+Math.round(coverage*100)+"% of your question's terms — a partial-overlap distractor, not an answer. Production RAG applies the same coverage check.)";
   const top=best.slice(0,2);
   return top.map(b=>b.s+" [Source "+(b.i+1)+"]").join(" ")+"\n\n— Simulated composer: stitched on-device from the highest-overlap sentences in your retrieved chunks.";
 }
@@ -827,11 +882,19 @@ const DATASETS={
   {text:"LFP (lithium iron phosphate) chemistry trades some energy density for thermal stability and long cycle life, which is why the Aarambh S1 pairs a 3.2 kWh LFP pack with an 8-year warranty commitment."},
   {text:"IP67 ingress protection means the enclosure is dust-tight and withstands temporary immersion up to 1 metre for 30 minutes; riding through monsoon waterlogging within these limits is covered."},
   {text:"IDC (Indian Driving Cycle) range figures are measured under standardised test conditions; real-world range varies with rider weight, terrain, speed, and use of Sprint mode."},
-  {text:"Hill-hold assist prevents rollback by holding brake pressure for a short interval when the rider releases the brake on an incline, a common requirement on flyover starts in Indian cities."}]}
+  {text:"Hill-hold assist prevents rollback by holding brake pressure for a short interval when the rider releases the brake on an incline, a common requirement on flyover starts in Indian cities."}]},
+ golden:{name:"aarambh-golden-eval",lines:[
+  {id:"g1",category:"fact",question:"What is the battery warranty on the S1?",gold_answer:"8 years or 80,000 km, whichever comes first, with at least 70% capacity retention guaranteed.",must_include:["8-year","80,000"]},
+  {id:"g2",category:"fact",question:"How long does a full home charge to 80% take?",gold_answer:"About 3.5 hours from 0 to 80% on the standard home charger.",must_include:["3.5 hours"]},
+  {id:"g3",category:"fact",question:"How many earned leave days accrue per month?",gold_answer:"1.5 days of earned leave per month (18 days per year).",must_include:["1.5 days"]},
+  {id:"g4",category:"fact",question:"What is the certified IDC range of the S1?",gold_answer:"142 km on the 3.2 kWh LFP battery pack.",must_include:["142 km"]},
+  {id:"g5",category:"refusal",question:"What Diwali discount are you offering on the S1?",gold_answer:"I don't have any discount information in our records.",must_include:["don't have"]},
+  {id:"g6",category:"fact",question:"What happens in week 2 of onboarding?",gold_answer:"Each engineer is paired with a mitra buddy for their first supervised task.",must_include:["mitra","buddy"]}]}
 };
 function loadSample(){
   const v=$("#dsSel").value;
   $("#mineTools").style.display=v==="mine"?"flex":"none";
+  $("#goldenTools").style.display=v==="golden"?"flex":"none";
   if(v==="mine"){$("#jsonlBox").value=house.jsonl||"";}
   else{$("#jsonlBox").value=DATASETS[v].lines.map(o=>JSON.stringify(o)).join("\n");}
   $("#valOut").innerHTML="";
@@ -846,6 +909,7 @@ const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"
 function detectFormat(objs){
   if(objs.every(o=>Array.isArray(o.messages)))return "sft";
   if(objs.every(o=>o.prompt&&o.chosen&&o.rejected))return "dpo";
+  if(objs.every(o=>o.question&&o.gold_answer&&Array.isArray(o.must_include)))return "golden";
   if(objs.every(o=>typeof o.text==="string"))return "cpt";
   return "mixed";
 }
@@ -879,6 +943,14 @@ function validateJSONL(){
   }else if(fmt==="cpt"){
     const short=valid.filter(o=>o.text.length<80).length;
     extra.push([short===0,'Raw-text corpus for domain-adaptive continued pretraining. All passages are substantive (≥80 chars).',short+' passage(s) are very short — tiny fragments add noise, merge them into fuller passages.']);
+  }else if(fmt==="golden"){
+    const seen=new Set();let refusals=0;
+    valid.forEach((o,i)=>{
+      if(seen.has(o.question))errs.push("Line "+(i+1)+": duplicate eval question");seen.add(o.question);
+      if(!o.must_include.length)errs.push("Line "+(i+1)+": must_include is empty — an eval with no checkable criteria can't score anything");
+      if(o.category==="refusal")refusals++;});
+    extra.push([true,'Golden eval format: question / gold_answer / must_include. This set is NEVER trained on — it\'s frozen and used to score every model or pipeline version. Keep it out of training data (decontamination).','']);
+    extra.push([refusals>0,'Includes '+refusals+' refusal check(s) — evals should verify the model declines what it shouldn\'t answer, not just what it should.','No refusal checks — add at least one question the system should decline.']);
   }
   if(errs.length)html+='<div class="vres bad">✗ '+errs.length+' issue(s):<br>'+errs.map(esc).join("<br>")+'</div>';
   else html+='<div class="vres good">✓ '+valid.length+' examples parsed cleanly in <b>'+fmt.toUpperCase()+'</b> format.</div>';
@@ -1051,6 +1123,26 @@ $("#aiDraftBtn").onclick=async()=>{
   btn.disabled=false;btn.textContent="✨ Draft 5 with free AI";
 };
 
+/* ============ golden eval runner ============ */
+$("#runEvalBtn").onclick=()=>{
+  const lines=$("#jsonlBox").value.split("\n").filter(l=>l.trim());
+  const evals=[];
+  for(const l of lines){try{const o=JSON.parse(l);if(o.question&&Array.isArray(o.must_include))evals.push(o);}catch(e){}}
+  if(!evals.length){$("#valOut").innerHTML='<div class="vres bad">No valid golden examples to run.</div>';return;}
+  if(!chunks.length){$("#valOut").innerHTML='<div class="vres bad">The active house has no documents — nothing to evaluate.</div>';return;}
+  let pass=0;const rows=evals.map(ev=>{
+    const r=retrieve(ev.question,3);
+    const ans=simulatedAnswer(ev.question,r.hits).split("\n")[0].toLowerCase();
+    const missing=ev.must_include.filter(t=>!ans.includes(t.toLowerCase()));
+    const ok=missing.length===0;if(ok)pass++;
+    return '<div class="vres '+(ok?"good":"bad")+'">'+(ok?'✓':'✗')+' ['+esc(ev.category||"fact")+'] '+esc(ev.question)+
+      (ok?'':'<br>&nbsp;&nbsp;missing: '+esc(missing.join(", "))+' · got: “'+esc(ans.slice(0,110))+'…”')+'</div>';
+  });
+  const rate=Math.round(100*pass/evals.length);
+  $("#valOut").innerHTML='<div class="vres '+(rate>=80?"good":"bad")+'"><b>Eval result: '+pass+'/'+evals.length+' passed ('+rate+'%)</b> — scored against “'+esc(house.name)+'” using on-device retrieval + the simulated composer (deterministic, so the score is reproducible).</div>'+rows.join("")+
+    '<div class="vres good" style="background:transparent;border-color:var(--line);color:var(--muted)">This is the golden-dataset workflow in miniature: freeze the questions, score every version, never train on them. Production evals run the same loop with LLM-as-judge or exact-match scoring — and a score drop after any change (new chunking, new model, new prompt) blocks the release. Edit the questions above to build a golden set for your own house.</div>';
+};
+
 /* ============ few-shot behaviour preview ============ */
 $("#sysBox").addEventListener("change",()=>{house.sys=$("#sysBox").value;saveHouses();});
 function mineExamples(n){
@@ -1081,6 +1173,29 @@ const FUTURE=[
 function renderFuture(){$("#futureCards").innerHTML=FUTURE.map(f=>`<div class="card">
   <div class="pill ${f[0]==="Here today"?"ok":f[0]==="Arriving"?"hit":"vec"}">${f[0]}</div>
   <h3>${f[1]}</h3><p>${f[2]}</p></div>`).join("");}
+
+/* ============ journey navigation ============ */
+const JOURNEY=[
+ ["build","1 · Build KB","Your documents are chunked and ready."],
+ ["store","2 · Vector Store","See those chunks as vectors on the live embedding map."],
+ ["query","3 · Query (RAG)","Now ask your memory a question and watch the full pipeline run."],
+ ["tune","4 · Fine-Tuning","Facts are handled — fine-tuning is how you shape behaviour and tone."],
+ ["future","5 · Future","You know both tools. Here's how they're evolving and merging."],
+ ["mcp","6 · MCP & Tools","Finally: plug your memory into agents, tools, and the wider company."]];
+function renderJourney(){
+  JOURNEY.forEach(([id,label],i)=>{
+    const sec=$("#s-"+id);if(!sec||sec.querySelector(".stepnav"))return;
+    const prev=JOURNEY[i-1],next=JOURNEY[i+1];
+    const nav=document.createElement("div");nav.className="stepnav";
+    nav.innerHTML=(next?'<div class="why">'+esc(next[2])+'</div>':'<div class="why">You\'ve completed the full journey — build a RAG House of your own, or export everything you made.</div>')+
+      '<div class="row">'+
+      (prev?'<button class="prevbtn" data-go="'+prev[0]+'">← '+esc(prev[1])+'</button>':'<span></span>')+
+      (next?'<button class="nextbtn" data-go="'+next[0]+'">Next: '+esc(next[1])+' →</button>':'<button class="nextbtn" data-go="build">↺ Back to 1 · Build your own House</button>')+
+      '</div>';
+    sec.appendChild(nav);
+  });
+  $$(".stepnav [data-go]").forEach(b=>b.onclick=()=>switchTab(b.dataset.go));
+}
 
 /* ============ tabs ============ */
 function switchTab(t){$$(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.t===t));
@@ -1219,7 +1334,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v13";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v18";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
@@ -1227,7 +1342,7 @@ function setupPWA(){
 }
 
 /* ============ init ============ */
-drawLogo();renderPipe();renderFT();loadSample();renderFuture();refreshMode();renderLora();renderHouses();
+drawLogo();renderPipe();renderFT();loadSample();renderFuture();refreshMode();renderLora();renderHouses();renderJourney();
 $("#chunkSize").value=chunkSize;$("#csLabel").textContent=chunkSize;
 rebuild();setupPWA();
 </script>
