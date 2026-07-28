@@ -164,7 +164,26 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
 <section id="s-build" role="tabpanel">
   <div class="pill vec">Step 1 · Ingest</div>
   <h2 class="h2 disp">Build your company knowledge base</h2>
-  <p class="sub">Everything starts with your documents. SMṚTI ships with a small sample knowledge base for a fictional Indian EV company, <b>Aarambh Motors</b>. Add or edit documents, then watch them get <b>chunked</b> — split into small overlapping passages that become searchable memory.</p>
+  <p class="sub">Everything starts with your documents. SMṚTI ships with a small sample knowledge base for a fictional Indian EV company, <b>Aarambh Motors</b> — and you can create <b>RAG Houses of your own</b>: separate spaces for your own domain, each with its own documents, index, dataset, and behaviour.</p>
+
+  <div class="card">
+    <h3>🏠 RAG Houses — the demo, and your own</h3>
+    <p>The Aarambh house stays as the worked example. Create a house for your college notes, your startup's docs, your community — the tool maintains the whole RAG lifecycle per house: ingest → chunk → index → query → dataset → export.</p>
+    <div class="row">
+      <select id="houseSel" style="width:auto;min-width:200px;flex:1" aria-label="Active RAG house"></select>
+      <button class="ghost" id="houseDel">Delete</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="houseName" placeholder="New house name — e.g. My M.Tech Notes, Sharma & Sons Traders" style="flex:1;min-width:180px">
+      <button class="primary" id="houseNew">+ Create house</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="houseExport">⬇ Export house (.json)</button>
+      <button class="ghost" id="houseImportBtn">⬆ Import house</button>
+      <input type="file" id="houseImport" accept=".json,application/json" style="display:none">
+    </div>
+    <p class="hint" id="houseHint"></p>
+  </div>
 
   <div class="grid2">
     <div class="card">
@@ -324,7 +343,13 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
         <option value="ground">2 · Grounding & Refusal set (anti-hallucination)</option>
         <option value="dpo">3 · Preference pairs — DPO (chosen vs rejected)</option>
         <option value="cpt">4 · Continued pretraining (raw domain text)</option>
+        <option value="mine">★ My dataset — for the active RAG house</option>
       </select>
+      <div class="row" id="mineTools" style="margin-top:8px;display:none">
+        <button class="ghost" id="autoDraftBtn">✍️ Auto-draft from my documents</button>
+        <button class="ghost" id="aiDraftBtn">✨ Draft 5 with free AI</button>
+        <span class="tag">Appends to your dataset · auto-saves per house</span>
+      </div>
       <textarea id="jsonlBox" class="mono" style="min-height:220px;font-size:12px;margin-top:8px"></textarea>
       <div class="row" style="margin-top:10px">
         <button class="primary" id="valBtn">Validate dataset</button>
@@ -346,6 +371,20 @@ footer{max-width:1200px;margin:0 auto;padding:20px 16px 40px;color:var(--muted);
         <li><b>Log real failures back in.</b> The best new training examples are yesterday's wrong answers, corrected by a human.</li>
       </ul>
     </div>
+  </div>
+
+  <div class="card">
+    <h3>Preview your house's tuned behaviour — few-shot</h3>
+    <p>Real fine-tuning bakes your dataset into the weights. The honest in-browser stand-in is <b>few-shot prompting</b>: the model is shown your behaviour prompt plus 3 examples from ★ your dataset, then your test question — a live preview of what tuning on that data would make permanent.</p>
+    <label for="sysBox">Behaviour system prompt (saved per house)</label>
+    <textarea id="sysBox" style="min-height:70px" placeholder="e.g. You are Sharma & Sons' assistant. Always warm, apologise first when something went wrong, answer in simple English, never invent offers or prices."></textarea>
+    <label for="bpQ">Test question</label>
+    <input type="text" id="bpQ" placeholder="e.g. A customer says their order arrived late and damaged.">
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="bpBtn">Preview with my examples</button>
+      <span class="tag">Uses the free AI · a preview, not real tuning</span>
+    </div>
+    <div class="answer" id="bpBox" style="display:none;margin-top:10px"></div>
   </div>
 
   <div class="card">
@@ -486,15 +525,28 @@ const SAMPLE_DOCS=[
  {id:"about",title:"About SMṚTI — App Guide",text:"SMṚTI is a free educational RAG lab. Retrieval runs fully on your device: documents are split into chunks and embedded as TF-IDF vectors, and your question is matched against them using cosine similarity. No document ever leaves your browser. The final answer step uses a free keyless AI: inside the Claude app it is answered by Claude, and on the open web it is answered by free community models via Pollinations. No API key or signup is ever required. If no free AI is reachable, an on-device simulated composer stitches the answer from your retrieved chunks instead. The answer chip always shows which provider produced the answer. A RAG assistant like this one can only answer questions that are covered by documents in its knowledge base; if the answer is not in any indexed document, it should say it does not have it in records rather than guessing."}
 ];
 
-/* ============ state ============ */
-let docs=LS.get("smriti.docs",null)||SAMPLE_DOCS.map(d=>({...d}));
-// one-time migration: give existing users the About doc so app meta-questions are answerable
-if(!docs.some(d=>d.id==="about")&&!LS.get("smriti.aboutAdded",false)){
-  docs.push({...SAMPLE_DOCS.find(d=>d.id==="about")});LS.set("smriti.docs",docs);LS.set("smriti.aboutAdded",true);}
-// keep the About doc's text current (it documents this app version)
-{const ab=docs.find(d=>d.id==="about"),cur=SAMPLE_DOCS.find(d=>d.id==="about");
- if(ab&&ab.text!==cur.text){ab.text=cur.text;LS.set("smriti.docs",docs);}}
-let chunkSize=LS.get("smriti.chunkSize",280);
+/* ============ state: RAG Houses ============ */
+function defaultSampleHouse(){return {id:"sample",name:"Aarambh Motors (demo)",docs:SAMPLE_DOCS.map(d=>({...d})),chunkSize:280,jsonl:"",sys:""};}
+let houses=LS.get("smriti.houses",null);
+if(!houses||!Array.isArray(houses)||!houses.length){
+  const sh=defaultSampleHouse();
+  const legacyDocs=LS.get("smriti.docs",null);          // migrate pre-house users
+  if(legacyDocs&&Array.isArray(legacyDocs))sh.docs=legacyDocs;
+  sh.chunkSize=LS.get("smriti.chunkSize",280);
+  houses=[sh];
+}
+let house=houses.find(h=>h.id===LS.get("smriti.activeHouse","sample"))||houses[0];
+let docs=house.docs;
+// keep the sample house's About doc present & current (it documents this app version)
+if(house.id==="sample"){
+  const cur=SAMPLE_DOCS.find(d=>d.id==="about");
+  const ab=docs.find(d=>d.id==="about");
+  if(!ab)docs.push({...cur});else if(ab.text!==cur.text)ab.text=cur.text;
+}
+let chunkSize=house.chunkSize||280;
+function saveHouses(){house.docs=docs;house.chunkSize=chunkSize;
+  const ok=LS.set("smriti.houses",houses);LS.set("smriti.activeHouse",house.id);return ok;}
+saveHouses();
 let chunks=[],vocab=null,idf=null,proj=null,lastQuery=null;
 const DOC_COLORS=["#8FA7FF","#F0B23E","#4FD8A6","#F26D6D","#C79BFF","#5FD0E8","#F2A0C8"];
 
@@ -584,8 +636,8 @@ function renderChunks(){
   $("#chunkList").innerHTML=chunks.map(c=>`<div class="chunk" style="--dc:${DOC_COLORS[c.di%DOC_COLORS.length]}">
     <div class="cid">${esc(c.id)} · ${esc(c.doc)}</div>${esc(c.text)}</div>`).join("");
 }
-function persistAndRebuild(){if(!LS.set("smriti.docs",docs))toast("Storage full — docs work this session but won't survive a reload. Remove some documents.");rebuild();}
-function rebuild(){chunkDocs();buildIndex();renderDocs();renderChunks();drawLegend();drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);}
+function persistAndRebuild(){if(!saveHouses())toast("Storage full — this house works this session but won't survive a reload. Remove some documents.");rebuild();}
+function rebuild(){chunkDocs();buildIndex();renderDocs();renderChunks();drawLegend();renderChips();drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);}
 
 /* ============ pipeline ============ */
 const STAGES=[
@@ -609,12 +661,15 @@ async function animatePipe(upto){
 
 /* ============ RAG query ============ */
 const SUGGESTIONS=["Which LLM answers my questions here?","How many earned leave days per month?","What is the battery warranty?","How fast does the S1 charge?","What happens in onboarding week 2?","Is my data uploaded anywhere?"];
-function renderChips(){$("#qChips").innerHTML=SUGGESTIONS.map(s=>`<button class="tag" style="cursor:pointer;background:var(--surface2)" data-q="${esc(s)}">${esc(s)}</button>`).join("");
+function renderChips(){
+  const list=house.id==="sample"?SUGGESTIONS:docs.slice(0,5).map(d=>"What does "+d.title+" cover?");
+  $("#qChips").innerHTML=list.map(s=>`<button class="tag" style="cursor:pointer;background:var(--surface2)" data-q="${esc(s)}">${esc(s)}</button>`).join("");
   $$("#qChips [data-q]").forEach(b=>b.onclick=()=>{$("#qInput").value=b.dataset.q;runQuery();});}
 
 function buildPrompt(q,hits){
   const ctx=hits.map((h,i)=>`[Source ${i+1}: ${h.c.doc} · ${h.c.id}]\n${h.c.text}`).join("\n\n");
-  return `You are Aarambh Motors' internal assistant. Answer ONLY from the context below. If the answer is not in the context, say "I don't have that in our records." Cite sources as [Source N].\n\n=== CONTEXT ===\n${ctx}\n\n=== QUESTION ===\n${q}`;
+  const sysLine=(house.sys&&house.sys.trim())?house.sys.trim():("You are the internal assistant for "+house.name+".");
+  return sysLine+` Answer ONLY from the context below. If the answer is not in the context, say "I don't have that in our records." Cite sources as [Source N].\n\n=== CONTEXT ===\n${ctx}\n\n=== QUESTION ===\n${q}`;
 }
 function simulatedAnswer(q,hits){
   const qt=new Set(tok(q));
@@ -774,7 +829,20 @@ const DATASETS={
   {text:"IDC (Indian Driving Cycle) range figures are measured under standardised test conditions; real-world range varies with rider weight, terrain, speed, and use of Sprint mode."},
   {text:"Hill-hold assist prevents rollback by holding brake pressure for a short interval when the rider releases the brake on an incline, a common requirement on flyover starts in Indian cities."}]}
 };
-function loadSample(){const d=DATASETS[$("#dsSel").value];$("#jsonlBox").value=d.lines.map(o=>JSON.stringify(o)).join("\n");$("#valOut").innerHTML="";}
+function loadSample(){
+  const v=$("#dsSel").value;
+  $("#mineTools").style.display=v==="mine"?"flex":"none";
+  if(v==="mine"){$("#jsonlBox").value=house.jsonl||"";}
+  else{$("#jsonlBox").value=DATASETS[v].lines.map(o=>JSON.stringify(o)).join("\n");}
+  $("#valOut").innerHTML="";
+}
+let jsonlSaveT=null;
+function maybeSaveMine(){
+  if($("#dsSel").value!=="mine")return;
+  clearTimeout(jsonlSaveT);
+  jsonlSaveT=setTimeout(()=>{house.jsonl=$("#jsonlBox").value;saveHouses();},400);
+}
+const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"house";
 function detectFormat(objs){
   if(objs.every(o=>Array.isArray(o.messages)))return "sft";
   if(objs.every(o=>o.prompt&&o.chosen&&o.rejected))return "dpo";
@@ -818,10 +886,11 @@ function validateJSONL(){
   out.innerHTML=html;
 }
 function downloadJSONL(){
-  const d=DATASETS[$("#dsSel").value];
+  const v=$("#dsSel").value;
+  const name=v==="mine"?slug(house.name)+"-dataset":DATASETS[v].name;
   const blob=new Blob([$("#jsonlBox").value],{type:"application/jsonl"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=d.name+".jsonl";
-  document.body.appendChild(a);a.click();a.remove();toast("Downloaded "+d.name+".jsonl");
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name+".jsonl";
+  document.body.appendChild(a);a.click();a.remove();toast("Downloaded "+name+".jsonl");
 }
 
 /* ============ downloadable internals ============ */
@@ -888,7 +957,120 @@ function exportWeights(){
   });
 }
 
-/* ============ future cards ============ */
+/* ============ RAG House management ============ */
+function renderHouses(){
+  $("#houseSel").innerHTML=houses.map(h=>`<option value="${esc(h.id)}"${h.id===house.id?" selected":""}>${h.id==="sample"?"🏭 ":"🏠 "}${esc(h.name)}</option>`).join("");
+  $("#houseDel").disabled=house.id==="sample";
+  $("#resetKbBtn").textContent=house.id==="sample"?"Reset sample KB":"Clear all documents";
+  const ds=(house.jsonl||"").split("\n").filter(l=>l.trim()).length;
+  $("#houseHint").textContent="Active: "+house.name+" · "+docs.length+" doc(s) · "+ds+" dataset example(s). Everything in a house stays in this browser; Export to back it up or move devices.";
+  $("#sysBox").value=house.sys||"";
+}
+function switchHouse(id){
+  saveHouses();
+  house=houses.find(h=>h.id===id)||houses[0];
+  docs=house.docs;chunkSize=house.chunkSize||280;
+  $("#chunkSize").value=chunkSize;$("#csLabel").textContent=chunkSize;
+  lastQuery=null;lastTrace=null;lastQ="";
+  $("#dlTraceBtn").disabled=true;$("#genBtn").disabled=true;
+  $("#ansBox").textContent="Ask a question about “"+house.name+"”.";
+  $("#ansChip").className="modechip sim";$("#ansChip").textContent="—";
+  $("#srcRow").innerHTML="";$("#promptPreview").textContent="The exact prompt sent to the LLM appears here after a query.";
+  $("#retList").innerHTML='<p class="hint">Run a query to see retrieval.</p>';$("#retStats").textContent="";
+  LS.set("smriti.activeHouse",house.id);
+  renderHouses();rebuild();loadSample();
+  toast("Switched to "+house.name);
+}
+$("#houseSel").onchange=e=>switchHouse(e.target.value);
+$("#houseNew").onclick=()=>{
+  const n=$("#houseName").value.trim();
+  if(!n){toast("Give your house a name first");return;}
+  const h={id:"h"+Date.now().toString(36),name:n,docs:[],chunkSize:280,jsonl:"",sys:""};
+  houses.push(h);$("#houseName").value="";switchHouse(h.id);
+  toast("“"+n+"” created — add your documents in this tab");
+};
+$("#houseDel").onclick=()=>{
+  if(house.id==="sample")return;
+  if(!confirm("Delete “"+house.name+"” and everything in it? Export first if you want a backup."))return;
+  houses=houses.filter(h=>h.id!==house.id);
+  switchHouse("sample");toast("House deleted");
+};
+$("#houseExport").onclick=()=>{
+  saveHouses();
+  downloadJSON(slug(house.name)+"-rag-house.json",{
+    _readme:"A complete SMṚTI RAG House: documents, chunking config, fine-tuning dataset (JSONL string), and behaviour prompt. Import it into SMṚTI on any device to restore the whole house.",
+    format:"smriti-house-v1",exported:new Date().toISOString(),
+    name:house.name,chunkSize:house.chunkSize,sys:house.sys||"",jsonl:house.jsonl||"",
+    docs:docs.map(d=>({title:d.title,text:d.text}))});
+};
+$("#houseImportBtn").onclick=()=>$("#houseImport").click();
+$("#houseImport").onchange=async e=>{
+  const f=e.target.files[0];e.target.value="";if(!f)return;
+  try{
+    const o=JSON.parse(await f.text());
+    if(!o||!Array.isArray(o.docs)||!o.docs.length)throw new Error("no docs[] found");
+    const h={id:"h"+Date.now().toString(36),name:(o.name||f.name.replace(/\.[^.]+$/,"")).slice(0,60),
+      chunkSize:+o.chunkSize||280,sys:(o.sys||"")+"",jsonl:(o.jsonl||"")+"",
+      docs:o.docs.filter(d=>d&&d.text).map((d,i)=>({id:"i"+Date.now().toString(36)+i,title:(d.title||"Document "+(i+1)).slice(0,120),text:(d.text+"").slice(0,MAX_DOC_CHARS)}))};
+    houses.push(h);switchHouse(h.id);toast("Imported “"+h.name+"” with "+h.docs.length+" doc(s)");
+  }catch(err){toast("Import failed: "+err.message);}
+};
+
+/* ============ dataset drafting for your house ============ */
+function houseSys(){return (house.sys&&house.sys.trim())||("You are the internal assistant for "+house.name+". Answer only from the knowledge base. If unsure, say you don't have it in records.");}
+$("#autoDraftBtn").onclick=()=>{
+  if(!chunks.length){toast("Add documents to this house first");return;}
+  const sys=houseSys();
+  const byDoc={};chunks.forEach(c=>{(byDoc[c.di]=byDoc[c.di]||[]).push(c);});
+  const order=[];Object.values(byDoc).forEach(a=>order.push(a[0]));Object.values(byDoc).forEach(a=>a.slice(1).forEach(c=>order.push(c)));
+  const lines=order.slice(0,8).map(c=>{
+    const terms=[...c.vec.entries()].sort((a,b)=>b[1]-a[1]).map(([w])=>w).filter(w=>/^[a-z]/i.test(w));
+    const topic=terms.slice(0,2).join(" ")||c.doc;
+    const ans=splitSents(c.text).slice(0,2).join(" ").trim();
+    return JSON.stringify({messages:[{role:"system",content:sys},{role:"user",content:"What does our "+c.doc+" say about "+topic+"?"},{role:"assistant",content:ans}]});
+  });
+  lines.push(JSON.stringify({messages:[{role:"system",content:sys},{role:"user",content:"Do we offer anything not mentioned in our documents?"},{role:"assistant",content:"I don't have that in our records — I can only answer from "+house.name+"'s indexed knowledge base."}]}));
+  house.jsonl=((house.jsonl||"").trim()?house.jsonl.trim()+"\n":"")+lines.join("\n");
+  saveHouses();loadSample();renderHouses();
+  toast(lines.length+" examples drafted from your documents — review and edit them, then Validate");
+};
+$("#aiDraftBtn").onclick=async()=>{
+  if(!chunks.length){toast("Add documents to this house first");return;}
+  const btn=$("#aiDraftBtn");btn.disabled=true;btn.textContent="✨ Drafting…";
+  try{
+    const excerpts=chunks.slice(0,6).map(c=>"["+c.doc+"] "+c.text).join("\n\n").slice(0,3500);
+    const p="You create fine-tuning data. Based ONLY on these excerpts from '"+house.name+"', output exactly 5 lines of JSONL and NOTHING else (no markdown fences, no commentary). Each line must be: {\"messages\":[{\"role\":\"system\",\"content\":"+JSON.stringify(houseSys())+"},{\"role\":\"user\",\"content\":\"<realistic question>\"},{\"role\":\"assistant\",\"content\":\"<answer strictly from the excerpts>\"}]}. Make one of the 5 an example where the assistant honestly says it doesn't have the information.\n\nEXCERPTS:\n"+excerpts;
+    const r=await freeAnswer(p);
+    const good=r.text.split("\n").map(l=>l.trim().replace(/^```.*$|^json$/g,"")).filter(Boolean)
+      .filter(l=>{try{const o=JSON.parse(l);return Array.isArray(o.messages);}catch(e){return false;}});
+    if(!good.length)throw new Error("the AI's output wasn't valid JSONL — try again");
+    house.jsonl=((house.jsonl||"").trim()?house.jsonl.trim()+"\n":"")+good.join("\n");
+    saveHouses();loadSample();renderHouses();
+    toast(good.length+" AI-drafted examples added ("+r.provider+") — review before trusting them");
+  }catch(e){toast("AI drafting failed: "+e.message);}
+  btn.disabled=false;btn.textContent="✨ Draft 5 with free AI";
+};
+
+/* ============ few-shot behaviour preview ============ */
+$("#sysBox").addEventListener("change",()=>{house.sys=$("#sysBox").value;saveHouses();});
+function mineExamples(n){
+  return (house.jsonl||"").split("\n").filter(l=>l.trim()).map(l=>{try{return JSON.parse(l);}catch(e){return null;}})
+    .filter(o=>o&&Array.isArray(o.messages))
+    .map(o=>({u:(o.messages.find(m=>m.role==="user")||{}).content||"",a:(o.messages.find(m=>m.role==="assistant")||{}).content||""}))
+    .filter(x=>x.u&&x.a).slice(0,n);
+}
+$("#bpBtn").onclick=async()=>{
+  const q=$("#bpQ").value.trim();
+  if(!q){toast("Type a test question");return;}
+  const ex=mineExamples(3);
+  if(!ex.length){toast("★ Your dataset is empty — draft some examples first (dataset selector above)");return;}
+  const box=$("#bpBox");box.style.display="block";box.textContent="Racing free providers with your behaviour + "+ex.length+" of your examples…";
+  const p=houseSys()+"\n\nHere are examples of ideal responses:\n\n"+ex.map(x=>"Q: "+x.u+"\nA: "+x.a).join("\n\n")+"\n\nRespond to the next question in exactly the same style and rules.\nQ: "+q+"\nA:";
+  try{
+    const r=await freeAnswer(p);
+    renderAnswer(box,r.text+"\n\n— Few-shot preview via "+r.provider+": this approximates what fine-tuning on your dataset would bake in permanently. Real tuning removes the need to send these examples with every request.");
+  }catch(e){box.textContent="No free AI provider reachable from this network — the behaviour preview needs a live model. Try on the deployed URL, or run 🩺 Test providers in the Query tab.";}
+};
 const FUTURE=[
  ["Here today","Hybrid retrieval + rerankers","Dense vectors alone miss exact terms ('IP67', invoice numbers). Production RAG now runs <b>BM25 keyword + vector search together</b>, then a cross-encoder reranker re-orders candidates. Biggest cheap quality win available right now."],
  ["Here today","Long-context + context caching (CAG)","Models with 200K–1M token windows let small knowledge bases skip the vector store entirely: cache the whole handbook in the prompt (<b>cache-augmented generation</b>) and pay the ingestion cost once. RAG survives for large, changing corpora; CAG eats the small-KB use case."],
@@ -917,7 +1099,10 @@ $("#addDocBtn").onclick=()=>{const t=$("#ndTitle").value.trim(),x=$("#ndText").v
   $("#ndTitle").value="";$("#ndText").value="";persistAndRebuild();
   toast("“"+t.slice(0,40)+"” added & indexed");
   fillNextPending();};
-$("#resetKbBtn").onclick=()=>{docs=SAMPLE_DOCS.map(d=>({...d}));persistAndRebuild();toast("Sample knowledge base restored");};
+$("#resetKbBtn").onclick=()=>{
+  if(house.id==="sample"){docs.length=0;SAMPLE_DOCS.forEach(d=>docs.push({...d}));persistAndRebuild();toast("Sample knowledge base restored");}
+  else{if(!confirm("Remove ALL documents from “"+house.name+"”?"))return;
+    docs.length=0;persistAndRebuild();toast("House emptied — add your own documents");}};
 
 /* ---------- file upload ingestion ---------- */
 const MAX_DOC_CHARS=40000;
@@ -994,7 +1179,7 @@ async function handleFiles(files){
 $("#uploadBtn").onclick=()=>$("#fileInput").click();
 $("#fileInput").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)handleFiles(fs);};
 $("#chunkSize").oninput=e=>{chunkSize=+e.target.value;$("#csLabel").textContent=chunkSize;};
-$("#chunkSize").onchange=()=>{LS.set("smriti.chunkSize",chunkSize);rebuild();toast("Re-chunked & re-indexed");};
+$("#chunkSize").onchange=()=>{saveHouses();rebuild();toast("Re-chunked & re-indexed");};
 $("#askBtn").onclick=runQuery;
 $("#genBtn").onclick=runGeneral;
 $("#healthBtn").onclick=()=>providerHealth($("#healthOut"));
@@ -1005,6 +1190,7 @@ $("#qInput").addEventListener("keydown",e=>{if(e.key==="Enter")runQuery();});
 $("#valBtn").onclick=validateJSONL;
 $("#sampleBtn").onclick=loadSample;
 $("#dsSel").onchange=loadSample;
+$("#jsonlBox").addEventListener("input",maybeSaveMine);
 $("#dlBtn").onclick=downloadJSONL;
 window.addEventListener("resize",()=>{if(!$("#s-store").hidden)drawMap(lastQuery?projectVec(lastQuery.qe):null,lastQuery?lastQuery.hits.map(h=>chunks.indexOf(h.c)).filter(i=>i>=0):null);});
 
@@ -1033,7 +1219,7 @@ function setupPWA(){
     const mb=new Blob([JSON.stringify(manifest)],{type:"application/json"});
     const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mb);document.head.appendChild(link);
     if("serviceWorker" in navigator){
-      const sw=`const C="smriti-v12";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
+      const sw=`const C="smriti-v13";self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.add(self.registration.scope)))});self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(n.ok&&e.request.url.startsWith(self.location.origin)){const cl=n.clone();caches.open(C).then(c=>c.put(e.request,cl));}return n;}).catch(()=>caches.match(self.registration.scope))))});`;
       const swb=new Blob([sw],{type:"text/javascript"});
       navigator.serviceWorker.register(URL.createObjectURL(swb)).catch(()=>{});
     }
@@ -1041,7 +1227,7 @@ function setupPWA(){
 }
 
 /* ============ init ============ */
-drawLogo();renderPipe();renderChips();renderFT();loadSample();renderFuture();refreshMode();renderLora();
+drawLogo();renderPipe();renderFT();loadSample();renderFuture();refreshMode();renderLora();renderHouses();
 $("#chunkSize").value=chunkSize;$("#csLabel").textContent=chunkSize;
 rebuild();setupPWA();
 </script>
